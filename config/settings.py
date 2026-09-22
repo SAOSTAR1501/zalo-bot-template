@@ -32,9 +32,10 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-4o-mini"
 
-    # Memory & Context
+    # Memory & Context Optimization (Episodic Summary Memory)
     MAX_CONTEXT_HOURS: int = 12
-    MAX_CONTEXT_TURNS: int = 20
+    RECENT_MESSAGES_COUNT: int = 4        # Raw recent turns to retain
+    AUTO_SUMMARIZE_THRESHOLD: int = 6     # Unsummarized turns before updating rolling summary
     DB_PATH: str = "data/zalo_bot.db"
 
     # Access Control

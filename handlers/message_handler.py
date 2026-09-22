@@ -56,8 +56,12 @@ class MessageHandler:
         if is_cmd and cmd_reply:
             reply_text = cmd_reply
         else:
-            # 3. Load 12-hour context & group knowledge base
-            history = context_service.get_history(str(chat_id), max_hours=settings.MAX_CONTEXT_HOURS)
+            # 3. Load Episodic Context (Rolling Summary + Recent Turns) & Group Knowledge
+            rolling_summary, history = context_service.get_optimized_context(
+                str(chat_id),
+                max_hours=settings.MAX_CONTEXT_HOURS,
+                recent_count=settings.RECENT_MESSAGES_COUNT
+            )
             knowledge_base = knowledge_service.get_knowledge_summary(str(chat_id), limit=3)
 
             # Format user prompt with sender name for group clarity
@@ -67,7 +71,8 @@ class MessageHandler:
             raw_ai_reply = llm_service.generate_reply(
                 prompt=prompt_with_sender,
                 history=history,
-                knowledge_base=knowledge_base
+                knowledge_base=knowledge_base,
+                rolling_summary=rolling_summary
             )
             reply_text = clean_markdown_for_zalo(raw_ai_reply)
 
@@ -78,7 +83,11 @@ class MessageHandler:
         saved_msg = f"{sender_name}: {cleaned_text}" if sender_name else cleaned_text
         context_service.save_turn(str(chat_id), saved_msg, reply_text, event_type=event_type)
 
+        # 7. Check & rollup summary in background (Episodic Memory compaction)
+        context_service.trigger_async_summary_update(str(chat_id))
+
         return {"status": "processed", "send_res": send_res}
 
 
 message_handler = MessageHandler()
+

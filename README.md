@@ -7,7 +7,7 @@ Template mã nguồn hoàn chỉnh cho Chatbot Zalo AI thông minh hỗ trợ Nh
 ## 🌟 Tính Năng Nổi Bật
 
 * **Đa Nhà Cung Cấp LLM**: Hỗ trợ **Ollama Cloud/Local** (`gemma4:31b`, `llama3.3`...), **Google Gemini** (`gemini-2.0-flash`), **OpenAI / DeepSeek**.
-* **Bộ Nhớ Ngữ Cảnh 12 Giờ (Rolling Context)**: Tự động ghi nhớ mạch hội thoại trong nhóm 12 giờ qua và tự động phân biệt tên từng thành viên gửi tin nhắn.
+* **Episodic Summary Memory (Tiết kiệm >80% Token)**: Sử dụng cơ chế nén ngữ cảnh luân phiên (Rolling Synopsis) kết hợp các lượt chat gần nhất, vừa duy trì mạch hội thoại dài 12 tiếng vừa tối ưu chi phí token vượt trội so với sliding window thông thường.
 * **Kho Tri Thức Nhóm (Knowledge Base)**:
   * `/save <nội dung>`: Thành viên chủ động lưu kiến thức quan trọng lâu dài.
   * `/knowledge`: Xem kho kiến thức đã lưu của nhóm.

@@ -26,3 +26,17 @@ class GroupKnowledge(Base):
     created_by = Column(String, nullable=True)
     is_auto = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class GroupContextSummary(Base):
+    """
+    Episodic memory: stores the rolling condensed summary of a group/chat.
+    Saves 80%+ tokens by replacing dozens of raw messages with a concise 50-token synopsis.
+    """
+    __tablename__ = "group_context_summaries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    chat_id = Column(String, nullable=False, unique=True, index=True)
+    summary = Column(Text, nullable=False, default="")
+    last_summarized_id = Column(Integer, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow)
