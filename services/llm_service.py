@@ -17,17 +17,18 @@ class LLMService:
         history: Optional[List[Dict[str, str]]] = None,
         knowledge_base: str = "",
         rolling_summary: str = "",
-        semantic_context: str = ""
+        semantic_context: str = "",
+        image_data: Optional[str] = None
     ) -> str:
         """
-        Dispatches prompt to the configured LLM provider with rolling summary, semantic RAG memory, and knowledge base.
+        Dispatches prompt to the configured LLM provider with rolling summary, semantic RAG memory, knowledge base, and optional image.
         """
         if self.provider == "ollama" and (settings.OLLAMA_API_KEY or "localhost" in settings.OLLAMA_BASE_URL or "127.0.0.1" in settings.OLLAMA_BASE_URL):
-            return self._ollama_reply(prompt, history, knowledge_base, rolling_summary, semantic_context)
+            return self._ollama_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data)
         elif self.provider == "gemini" and settings.GEMINI_API_KEY:
-            return self._gemini_reply(prompt, history, knowledge_base, rolling_summary, semantic_context)
+            return self._gemini_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data)
         elif self.provider in ["openai", "deepseek"] and settings.OPENAI_API_KEY:
-            return self._openai_reply(prompt, history, knowledge_base, rolling_summary, semantic_context)
+            return self._openai_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data)
         elif self.provider == "opencode":
             return self._opencode_reply(prompt)
         
@@ -117,7 +118,15 @@ class LLMService:
             prompt += f"\n\n--- KIẾN THỨC ĐÃ LƯU TRỮ CỦA NHÓM ---\n{knowledge_base}\n(Hãy ưu tiên sử dụng kiến thức trên để trả lời các câu hỏi liên quan)."
         return prompt
 
-    def _ollama_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "", rolling_summary: str = "", semantic_context: str = "") -> str:
+    def _ollama_reply(
+        self,
+        prompt: str,
+        history: Optional[List[Dict[str, str]]] = None,
+        knowledge_base: str = "",
+        rolling_summary: str = "",
+        semantic_context: str = "",
+        image_data: Optional[str] = None
+    ) -> str:
         url = settings.OLLAMA_BASE_URL.rstrip("/") + "/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
         if settings.OLLAMA_API_KEY:
@@ -126,32 +135,62 @@ class LLMService:
         messages = [{"role": "system", "content": self._build_system_prompt(knowledge_base, rolling_summary, semantic_context)}]
         if history:
             messages.extend(history)
-        messages.append({"role": "user", "content": prompt})
+
+        # Route to kimi-k2.7-code if image is present
+        target_model = settings.VISION_MODEL if image_data else settings.OLLAMA_MODEL
+
+        if image_data:
+            user_msg = {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": image_data}}
+                ]
+            }
+        else:
+            user_msg = {"role": "user", "content": prompt}
+
+        messages.append(user_msg)
 
         payload = {
-            "model": settings.OLLAMA_MODEL,
+            "model": target_model,
             "messages": messages
         }
         try:
-            r = requests.post(url, json=payload, headers=headers, timeout=40)
+            r = requests.post(url, json=payload, headers=headers, timeout=50)
             data = r.json()
             if "choices" in data and len(data["choices"]) > 0:
                 return data["choices"][0]["message"]["content"]
-            logger.error(f"Ollama response error: {data}")
+            logger.error(f"Ollama/Kimi response error: {data}")
             err = data.get("error", {}).get("message") or data.get("error") or str(data)
-            return f"[Ollama Error]: {err}"
+            return f"[AI Error]: {err}"
         except Exception as e:
-            logger.error(f"Ollama call failed: {e}")
-            return f"[Ollama Error]: {e}"
+            logger.error(f"Ollama/Kimi call failed: {e}")
+            return f"[AI Error]: {e}"
 
-    def _gemini_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "", rolling_summary: str = "", semantic_context: str = "") -> str:
+    def _gemini_reply(
+        self,
+        prompt: str,
+        history: Optional[List[Dict[str, str]]] = None,
+        knowledge_base: str = "",
+        rolling_summary: str = "",
+        semantic_context: str = "",
+        image_data: Optional[str] = None
+    ) -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
         contents = []
         if history:
             for h in history:
                 role = "user" if h["role"] == "user" else "model"
                 contents.append({"role": role, "parts": [{"text": h["content"]}]})
-        contents.append({"role": "user", "parts": [{"text": prompt}]})
+
+        user_parts = [{"text": prompt}]
+        if image_data and ";base64," in image_data:
+            header, b64_str = image_data.split(";base64,")
+            mime_type = header.replace("data:", "").strip() or "image/jpeg"
+            user_parts.append({"inlineData": {"mimeType": mime_type, "data": b64_str}})
+
+        contents.append({"role": "user", "parts": user_parts})
 
         payload = {
             "contents": contents,
@@ -160,7 +199,7 @@ class LLMService:
             }
         }
         try:
-            r = requests.post(url, json=payload, timeout=30)
+            r = requests.post(url, json=payload, timeout=35)
             data = r.json()
             if "candidates" in data and len(data["candidates"]) > 0:
                 return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -171,7 +210,15 @@ class LLMService:
             logger.error(f"Gemini call failed: {e}")
             return f"[Gemini Error]: {e}"
 
-    def _openai_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "", rolling_summary: str = "", semantic_context: str = "") -> str:
+    def _openai_reply(
+        self,
+        prompt: str,
+        history: Optional[List[Dict[str, str]]] = None,
+        knowledge_base: str = "",
+        rolling_summary: str = "",
+        semantic_context: str = "",
+        image_data: Optional[str] = None
+    ) -> str:
         url = settings.OPENAI_BASE_URL.rstrip("/") + "/chat/completions"
         headers = {
             "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
@@ -180,7 +227,19 @@ class LLMService:
         messages = [{"role": "system", "content": self._build_system_prompt(knowledge_base, rolling_summary, semantic_context)}]
         if history:
             messages.extend(history)
-        messages.append({"role": "user", "content": prompt})
+
+        if image_data:
+            user_msg = {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": image_data}}
+                ]
+            }
+        else:
+            user_msg = {"role": "user", "content": prompt}
+
+        messages.append(user_msg)
 
         payload = {
             "model": settings.OPENAI_MODEL,
@@ -197,7 +256,6 @@ class LLMService:
         except Exception as e:
             logger.error(f"OpenAI call failed: {e}")
             return f"[OpenAI Error]: {e}"
-
 
     def _opencode_reply(self, prompt: str) -> str:
         try:

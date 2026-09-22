@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     # Ollama
     OLLAMA_BASE_URL: str = "https://ollama.com"
     OLLAMA_API_KEY: str = ""
-    OLLAMA_MODEL: str = "gemma4:31b"
+    OLLAMA_MODEL: str = "deepseek-v4-pro:0813"
+    VISION_MODEL: str = "kimi-k2.7-code"
 
     # Gemini
     GEMINI_API_KEY: str = ""

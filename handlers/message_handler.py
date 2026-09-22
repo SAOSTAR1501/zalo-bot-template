@@ -8,6 +8,7 @@ from services.knowledge_service import knowledge_service
 from services.semantic_memory_service import semantic_memory_service
 from services.quota_service import quota_service
 from services.aggregator_service import aggregator_service
+from services.image_service import image_service
 from services.formatter import clean_mention, clean_markdown_for_zalo, strip_quota_badges
 from handlers.command_handler import command_handler
 
@@ -18,7 +19,7 @@ class MessageHandler:
     def process_webhook_event(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Main entry point for incoming Zalo webhook event.
-        Dispatches commands immediately, and debounces conversation messages into batches.
+        Dispatches commands immediately, and debounces conversation messages & images into batches.
         """
         event_type = data.get("event_name", "") or data.get("event_type", "")
         message = data.get("message", {}) if isinstance(data.get("message"), dict) else {}
@@ -33,17 +34,33 @@ class MessageHandler:
         )
         user_id = from_user.get("id") or data.get("sender", {}).get("id") or chat_id
         sender_name = from_user.get("display_name", "")
-        raw_text = message.get("text", "") or data.get("text", "")
         message_id = message.get("message_id") or data.get("message_id") or message.get("msg_id") or data.get("msg_id")
+
+        # Extract photo / image URL if present
+        photo_url = (
+            message.get("photo_url")
+            or data.get("photo_url")
+            or (message.get("photo")[-1].get("url") if isinstance(message.get("photo"), list) and message.get("photo") else None)
+            or (message.get("photo") if isinstance(message.get("photo"), str) else None)
+            or data.get("photo")
+            or data.get("url")
+        )
+
+        caption_text = message.get("caption", "") or data.get("caption", "") or ""
+        raw_text = message.get("text", "") or data.get("text", "") or caption_text
+
+        # If user sent an image without caption, provide a default natural prompt
+        if photo_url and not str(raw_text).strip():
+            raw_text = "Hãy xem và phân tích/mô tả chi tiết bức ảnh này giúp tôi."
+
+        # Ignore empty events
+        if (not raw_text and not photo_url) or not chat_id:
+            return {"status": "ignored", "event": event_type}
 
         # Quoted / Reply-to message context
         reply_to_obj = message.get("reply_to_message") or data.get("reply_to_message") or {}
         reply_to_text = reply_to_obj.get("text", "") if isinstance(reply_to_obj, dict) else ""
         reply_to_sender = reply_to_obj.get("from", {}).get("display_name", "") if isinstance(reply_to_obj, dict) else ""
-
-        # Ignore non-text or empty events
-        if not raw_text or not chat_id:
-            return {"status": "ignored", "event": event_type}
 
         # Access Control: Check if group is allowed
         if settings.allowed_groups and str(chat_id) not in settings.allowed_groups:
@@ -79,6 +96,7 @@ class MessageHandler:
             "cleaned_text": cleaned_text,
             "event_type": event_type,
             "message_id": str(message_id) if message_id else None,
+            "photo_url": photo_url,
             "reply_to_text": reply_to_text,
             "reply_to_sender": reply_to_sender
         }
@@ -94,7 +112,7 @@ class MessageHandler:
     def _process_aggregated_batch(self, chat_id: str, events: List[Dict[str, Any]]):
         """
         Executes after debounce timer expires (no new messages for 2.5s).
-        Gathers all consecutive texts into a single prompt, saving tokens & sending 1 unified response.
+        Gathers all consecutive texts and images into a single prompt, saving tokens & sending 1 unified response.
         """
         if not events:
             return
@@ -104,6 +122,13 @@ class MessageHandler:
         sender_name = latest_event["sender_name"]
         event_type = latest_event["event_type"]
         latest_message_id = latest_event.get("message_id")
+
+        # Extract photo URL if any message in the batch contained an image
+        photo_url = next((e.get("photo_url") for e in reversed(events) if e.get("photo_url")), None)
+        image_data = None
+        if photo_url:
+            logger.info(f"Downloading photo for Vision model: {photo_url[:100]}...")
+            image_data = image_service.fetch_image_as_data_url(photo_url)
 
         # 1. Combine consecutive text messages and incorporate quoted reply context
         if len(events) == 1:
@@ -167,13 +192,14 @@ class MessageHandler:
         # 5. Format prompt with sender name
         prompt_with_sender = f"{sender_name}: {combined_cleaned_text}" if sender_name else combined_cleaned_text
 
-        # 6. Generate AI reply with Tri-Tier Context
+        # 6. Generate AI reply with Tri-Tier Context + Multimodal Vision (kimi-k2.7-code)
         raw_ai_reply = llm_service.generate_reply(
             prompt=prompt_with_sender,
             history=history,
             knowledge_base=knowledge_base,
             rolling_summary=rolling_summary,
-            semantic_context=semantic_context
+            semantic_context=semantic_context,
+            image_data=image_data
         )
 
         cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
@@ -190,7 +216,7 @@ class MessageHandler:
         )
 
         # 9. Save turn to conversation database
-        saved_msg = f"{sender_name}: {combined_cleaned_text}" if sender_name else combined_cleaned_text
+        saved_msg = f"{sender_name}: [Hình ảnh] {combined_cleaned_text}" if image_data else (f"{sender_name}: {combined_cleaned_text}" if sender_name else combined_cleaned_text)
         context_service.save_turn(str(chat_id), saved_msg, reply_text, event_type=event_type)
 
         # 10. Check & rollup summary in background (Episodic Memory compaction)
