@@ -28,6 +28,22 @@ app = FastAPI(
 )
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Pre-warm embedding model and persistent connections in background."""
+    import threading
+    def _warmup():
+        try:
+            from services.semantic_memory_service import get_embedding_model
+            get_embedding_model()
+            zalo_client.get_me()
+            logger.info("Startup warmup complete: FastEmbed and Zalo Client ready.")
+        except Exception as e:
+            logger.warning(f"Startup warmup note: {e}")
+    threading.Thread(target=_warmup, daemon=True).start()
+
+
+
 @app.get("/health")
 async def health():
     """Health check endpoint."""

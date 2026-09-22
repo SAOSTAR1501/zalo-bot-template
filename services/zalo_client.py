@@ -1,5 +1,7 @@
 import logging
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from typing import Dict, Any, Optional
 from config.settings import settings
 
@@ -10,6 +12,24 @@ class ZaloBotClient:
     def __init__(self, token: Optional[str] = None):
         self.token = token or settings.ZALO_BOT_TOKEN
         self.base_url = "https://bot-api.zaloplatforms.com"
+        self._init_session()
+
+    def _init_session(self):
+        """Initializes a persistent HTTP session with connection pooling and auto-retries."""
+        self.session = requests.Session()
+        retries = Retry(
+            total=3,
+            backoff_factor=0.3,
+            status_forcelist=[500, 502, 503, 504],
+            raise_on_status=False
+        )
+        adapter = HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=20,
+            max_retries=retries
+        )
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     def _url(self, method: str) -> str:
         return f"{self.base_url}/bot{self.token}/{method}"
@@ -18,7 +38,7 @@ class ZaloBotClient:
         """Get Bot information."""
         url = self._url("getMe")
         try:
-            r = requests.post(url, timeout=15)
+            r = self.session.post(url, timeout=(5, 15))
             return r.json()
         except Exception as e:
             logger.error(f"Failed to getMe: {e}")
@@ -28,7 +48,7 @@ class ZaloBotClient:
         """Get current webhook status."""
         url = self._url("getWebhookInfo")
         try:
-            r = requests.post(url, timeout=15)
+            r = self.session.post(url, timeout=(5, 15))
             return r.json()
         except Exception as e:
             logger.error(f"Failed to getWebhookInfo: {e}")
@@ -42,7 +62,7 @@ class ZaloBotClient:
             "secret_token": secret_token
         }
         try:
-            r = requests.post(endpoint, json=payload, timeout=20)
+            r = self.session.post(endpoint, json=payload, timeout=(5, 20))
             return r.json()
         except Exception as e:
             logger.error(f"Failed to setWebhook: {e}")
@@ -52,7 +72,7 @@ class ZaloBotClient:
         """Remove webhook configuration."""
         url = self._url("deleteWebhook")
         try:
-            r = requests.post(url, timeout=15)
+            r = self.session.post(url, timeout=(5, 15))
             return r.json()
         except Exception as e:
             logger.error(f"Failed to deleteWebhook: {e}")
@@ -70,7 +90,7 @@ class ZaloBotClient:
             "text": text[:2000]
         }
         try:
-            r = requests.post(url, json=payload, timeout=20)
+            r = self.session.post(url, json=payload, timeout=(10, 25))
             logger.info(f"Zalo send response ({r.status_code}): {r.text[:300]}")
             return r.json() if r.text else {"status_code": r.status_code}
         except Exception as e:
@@ -87,7 +107,7 @@ class ZaloBotClient:
         if caption:
             payload["caption"] = caption[:1024]
         try:
-            r = requests.post(url, json=payload, timeout=20)
+            r = self.session.post(url, json=payload, timeout=(10, 25))
             return r.json()
         except Exception as e:
             logger.error(f"Failed to sendPhoto: {e}")
@@ -95,3 +115,4 @@ class ZaloBotClient:
 
 
 zalo_client = ZaloBotClient()
+
