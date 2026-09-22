@@ -20,10 +20,15 @@ class CommandHandler:
         if is_admin:
             menu += (
                 "\n\n👑 QUẢN TRỊ VIÊN (ADMIN ONLY):\n"
-                "• /accept <user_id> [gói] : Cấp / Chuyển đổi gói\n"
-                "  (Gói: 10, 20, 50, homnay, tuannay, thangnay, vinhvien, reset)\n"
+                "• /accept <user_id> [gói] : Cấp / Đổi gói linh hoạt\n"
+                "  - Cấp số tin: 10, 15, 20, 50, 100 (tùy ý)\n"
+                "  - Theo giờ: 2h, 5 giờ, 12h\n"
+                "  - Theo ngày: homnay, 3 ngày, tuannay (7 ngày)\n"
+                "  - Theo tháng: thangnay (30 ngày), 2 tháng\n"
+                "  - Vĩnh viễn: vinhvien\n"
+                "  - Reset mặc định: reset (10 tin miễn phí)\n"
                 "• /block <user_id> : Khóa / Chặn người dùng vĩnh viễn\n"
-                "• /unblock <user_id> : Mở khóa cho người dùng\n"
+                "• /unblock <user_id> : Mở khóa người dùng\n"
                 "• /users : Xem danh sách người dùng & hạn mức"
             )
         return menu
