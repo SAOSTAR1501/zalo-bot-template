@@ -88,35 +88,43 @@ class CommandHandler:
 
             return True, f"✅ Đã lưu lại kiến thức vào kho của nhóm:\n• {content_to_save}"
 
-        # 8. Admin Command: /accept <user_id> (Duyệt người dùng)
-        accept_match = re.match(r"^(?:/accept|/duyet|duyệt[:\s])\s*([a-zA-Z0-9_-]+)$", cleaned_text, re.IGNORECASE)
+        # 8. Admin Command: /accept <user_id> [số_tin] hoặc /duyet <user_id> [số_tin]
+        accept_match = re.match(r"^(?:/accept|/duyet|duyệt[:\s])\s*([a-zA-Z0-9_-]+)(?:\s+(\d+|full))?$", cleaned_text, re.IGNORECASE)
         if accept_match:
             from services.quota_service import quota_service
             if not quota_service.is_admin(user_id):
                 return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
             target_uid = accept_match.group(1).strip()
-            ok, msg = quota_service.approve_user(target_uid)
+            amount_str = accept_match.group(2)
+
+            if amount_str and amount_str.isdigit():
+                # Grant specific message quota count
+                ok, msg = quota_service.add_quota_to_user(target_uid, int(amount_str))
+            else:
+                # Grant full unlimited access
+                ok, msg = quota_service.approve_user(target_uid)
             return True, msg
 
-        # 9. Admin Command: /users (Danh sách người dùng và hạn mức)
+        # 9. Admin Command: /addquota <user_id> <số_tin> hoặc /quota <user_id> <số_tin> hoặc /cong <user_id> <số_tin>
+        addquota_match = re.match(r"^(?:/addquota|/quota|/cong|cộng[:\s])\s*([a-zA-Z0-9_-]+)\s+(\d+)$", cleaned_text, re.IGNORECASE)
+        if addquota_match:
+            from services.quota_service import quota_service
+            if not quota_service.is_admin(user_id):
+                return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
+            target_uid = addquota_match.group(1).strip()
+            num = int(addquota_match.group(2).strip())
+            ok, msg = quota_service.add_quota_to_user(target_uid, num)
+            return True, msg
+
+        # 10. Admin Command: /users (Danh sách người dùng và hạn mức)
         if text_lower in ["/users", "/danhsach", "danh sách người dùng", "xem hạn mức"]:
             from services.quota_service import quota_service
             if not quota_service.is_admin(user_id):
                 return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
             return True, quota_service.list_users()
 
-        # 10. Admin Command: /quota <user_id> <num>
-        quota_match = re.match(r"^/quota\s+([a-zA-Z0-9_-]+)\s+(\d+)$", cleaned_text, re.IGNORECASE)
-        if quota_match:
-            from services.quota_service import quota_service
-            if not quota_service.is_admin(user_id):
-                return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
-            target_uid = quota_match.group(1).strip()
-            num = int(quota_match.group(2).strip())
-            ok, msg = quota_service.set_custom_quota(target_uid, num)
-            return True, msg
-
         return False, None
+
 
 
 command_handler = CommandHandler()

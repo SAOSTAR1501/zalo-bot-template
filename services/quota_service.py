@@ -160,30 +160,61 @@ class QuotaService:
         finally:
             db.close()
 
-    def set_custom_quota(self, target_user_id: str, new_quota: int) -> Tuple[bool, str]:
-        """Sets custom message limit for a user."""
+    def add_quota_to_user(self, target_user_id: str, additional_count: int) -> Tuple[bool, str]:
+        """
+        Adds additional message quota to a user instead of granting full unlimited access.
+        """
+        if additional_count <= 0:
+            return False, "Số lượng tin nhắn cộng thêm phải lớn hơn 0."
+
         db = SessionLocal()
         try:
             record = db.query(UserQuota).filter(UserQuota.user_id == str(target_user_id)).first()
             if not record:
                 record = UserQuota(
                     user_id=str(target_user_id),
+                    display_name=f"User_{target_user_id[:6]}",
                     message_count=0,
-                    max_quota=new_quota,
+                    max_quota=settings.FREE_MESSAGE_QUOTA + additional_count,
                     is_approved=False,
+                    spam_warnings_sent=0,
+                    created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
                 )
                 db.add(record)
             else:
-                record.max_quota = new_quota
-                record.spam_warnings_sent = 0
+                # Calculate new max quota from current usage
+                base_quota = max(record.message_count, record.max_quota)
+                record.max_quota = base_quota + additional_count
+                record.is_approved = False  # Keep as quota-based
+                record.spam_warnings_sent = 0  # Unblock spam
                 record.updated_at = datetime.utcnow()
+
             db.commit()
-            return True, f"✅ Đã đặt lại hạn mức cho ID {target_user_id}: {new_quota} tin nhắn."
+
+            remaining = record.max_quota - record.message_count
+            name = record.display_name or target_user_id
+
+            # Send notification message to the user
+            try:
+                zalo_client.send_message(
+                    str(target_user_id),
+                    f"🎉 Admin Sao đẹp trai đã cộng thêm {additional_count} tin nhắn cho bạn! (Hạn mức còn lại: {remaining} tin). Bạn có thể tiếp tục trò chuyện cùng bot nhé. 😊"
+                )
+            except Exception as e:
+                logger.warning(f"Could not notify user {target_user_id}: {e}")
+
+            return True, f"✅ Đã cộng thêm {additional_count} tin nhắn cho {name} (ID: {target_user_id}) thành công! Hạn mức mới: {record.message_count}/{record.max_quota} (còn {remaining} tin)."
         except Exception as e:
-            return False, f"Lỗi: {e}"
+            logger.error(f"Error adding quota to {target_user_id}: {e}")
+            return False, f"Lỗi cộng tin nhắn: {e}"
         finally:
             db.close()
+
+    def set_custom_quota(self, target_user_id: str, new_quota: int) -> Tuple[bool, str]:
+        """Sets custom message limit for a user."""
+        return self.add_quota_to_user(target_user_id, new_quota)
+
 
     def list_users(self, limit: int = 15) -> str:
         """Returns formatted string of recent users and their quotas."""
