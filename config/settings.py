@@ -18,11 +18,13 @@ class Settings(BaseSettings):
     # AI Provider
     AI_PROVIDER: str = "ollama"  # ollama | gemini | openai | deepseek | echo
 
-    # Ollama
+    # Ollama / Cloud LLM Endpoints
     OLLAMA_BASE_URL: str = "https://ollama.com"
     OLLAMA_API_KEY: str = ""
     OLLAMA_MODEL: str = "deepseek-v4-pro:0813"
     VISION_MODEL: str = "kimi-k2.7-code"
+    FALLBACK_MODELS: str = "glm-5.3-flash,glm-5.2,glm-5.1"
+    VISION_FALLBACK_MODELS: str = "kimi-k3,glm-5.3-flash"
 
     # Gemini
     GEMINI_API_KEY: str = ""

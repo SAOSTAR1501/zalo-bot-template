@@ -160,9 +160,6 @@ class LLMService:
         if history:
             messages.extend(history)
 
-        # Route to kimi-k2.7-code if image is present
-        target_model = settings.VISION_MODEL if image_data else settings.OLLAMA_MODEL
-
         if image_data:
             user_msg = {
                 "role": "user",
@@ -171,25 +168,40 @@ class LLMService:
                     {"type": "image_url", "image_url": {"url": image_data}}
                 ]
             }
+            # Vision candidate models (Kimi Vision -> GLM)
+            raw_fallbacks = [m.strip() for m in settings.VISION_FALLBACK_MODELS.split(",") if m.strip()]
+            candidate_models = [settings.VISION_MODEL] + [m for m in raw_fallbacks if m != settings.VISION_MODEL]
         else:
             user_msg = {"role": "user", "content": prompt}
+            # Text candidate models: Primary (DeepSeek) -> GLM Fallbacks (glm-5.3-flash, glm-5.2, glm-5.1)
+            raw_fallbacks = [m.strip() for m in settings.FALLBACK_MODELS.split(",") if m.strip()]
+            candidate_models = [settings.OLLAMA_MODEL] + [m for m in raw_fallbacks if m != settings.OLLAMA_MODEL]
 
         messages.append(user_msg)
 
-        payload = {
-            "model": target_model,
-            "messages": messages
-        }
-        try:
-            r = self.session.post(url, json=payload, headers=headers, timeout=(6, 45))
-            data = r.json()
-            if "choices" in data and len(data["choices"]) > 0:
-                return data["choices"][0]["message"]["content"]
-            logger.error(f"Ollama/Kimi response error: {data}")
-            return "Dạ máy chủ AI đang phản hồi chậm, bạn vui lòng gửi lại tin nhắn nhé!"
-        except Exception as e:
-            logger.error(f"Ollama/Kimi call failed: {e}")
-            return "Dạ hiện tại đường truyền kết nối AI đang bị gián đoạn đôi chút, bạn vui lòng thử lại sau vài giây nhé!"
+        last_error = None
+        for model_name in candidate_models:
+            payload = {
+                "model": model_name,
+                "messages": messages
+            }
+            try:
+                r = self.session.post(url, json=payload, headers=headers, timeout=(5, 35))
+                if r.status_code == 200:
+                    data = r.json()
+                    if "choices" in data and len(data["choices"]) > 0:
+                        content = data["choices"][0]["message"]["content"]
+                        if model_name != candidate_models[0]:
+                            logger.info(f"✅ Fallback to {model_name} succeeded after primary model failed!")
+                        return content
+                logger.warning(f"Model {model_name} returned status {r.status_code}: {r.text[:150]}, trying next fallback model...")
+                last_error = f"HTTP {r.status_code}: {r.text[:100]}"
+            except Exception as e:
+                logger.warning(f"Model {model_name} request error ({e}), trying next fallback model...")
+                last_error = str(e)
+
+        logger.error(f"All candidate models failed in fallback chain: {candidate_models}. Last error: {last_error}")
+        return "Dạ hiện tại đường truyền kết nối AI đang bị gián đoạn đôi chút, bạn vui lòng gửi lại tin nhắn sau vài giây nhé!"
 
     def _gemini_reply(
         self,
