@@ -40,3 +40,15 @@ def clean_markdown_for_zalo(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
 
     return text.strip()
+
+
+def strip_quota_badges(text: str) -> str:
+    """
+    Strips transient quota badges like (💡 Tin nhắn X/10 miễn phí)
+    so LLM does not hallucinate or mimic them into future replies.
+    """
+    if not text:
+        return ""
+    cleaned = re.sub(r"\s*\(💡\s*Tin nhắn\s+\d+/\d+\s+miễn phí\)\s*", "", text, flags=re.IGNORECASE)
+    return cleaned.strip()
+

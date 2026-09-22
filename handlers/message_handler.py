@@ -103,22 +103,23 @@ class MessageHandler:
                 rolling_summary=rolling_summary,
                 semantic_context=semantic_context
             )
-            reply_text = clean_markdown_for_zalo(raw_ai_reply)
-            if quota_badge:
-                reply_text += quota_badge
+            from services.formatter import strip_quota_badges
+            cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
+            reply_text = clean_markdown_for_zalo(cleaned_ai_reply)
 
-        # 6. Send message back to Zalo
-        send_res = zalo_client.send_message(str(chat_id), reply_text)
+        # 6. Prepare final text for Zalo (append transient quota badge if applicable)
+        final_send_text = f"{reply_text}{quota_badge}" if (quota_badge and not is_cmd) else reply_text
+        send_res = zalo_client.send_message(str(chat_id), final_send_text)
 
-        # 7. Save turn to conversation database
+        # 7. Save clean turn to conversation database (without transient badges)
         saved_msg = f"{sender_name}: {cleaned_text}" if sender_name else cleaned_text
         context_service.save_turn(str(chat_id), saved_msg, reply_text, event_type=event_type)
-
 
         # 8. Check & rollup summary in background (Episodic Memory compaction)
         context_service.trigger_async_summary_update(str(chat_id))
 
         return {"status": "processed", "send_res": send_res}
+
 
 
 

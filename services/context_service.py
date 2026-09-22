@@ -48,14 +48,16 @@ class ContextService:
             rows.reverse()
 
             recent_history = []
+            from services.formatter import strip_quota_badges
             for r in rows:
                 clean_msg = r.message
-                clean_rep = r.reply
+                clean_rep = strip_quota_badges(r.reply or "")
                 if clean_msg and clean_rep and not clean_rep.startswith("["):
                     recent_history.append({"role": "user", "content": clean_msg})
                     recent_history.append({"role": "assistant", "content": clean_rep})
 
             return rolling_summary, recent_history
+
         except Exception as e:
             logger.error(f"Error loading optimized context: {e}")
             return "", []
