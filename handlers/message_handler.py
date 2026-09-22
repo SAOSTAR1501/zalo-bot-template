@@ -45,7 +45,24 @@ class MessageHandler:
         # 1. Clean mention prefix (@Bot_Name)
         cleaned_text = clean_mention(raw_text)
 
-        # 2. Check for built-in Commands / Menu
+        # 2. Check 1-1 Private Chat Quota & Spam Protection
+        from services.quota_service import quota_service
+        can_process, is_silent, quota_notice, quota_badge = quota_service.check_user_quota(
+            chat_id=str(chat_id),
+            user_id=str(user_id),
+            display_name=sender_name
+        )
+
+        if is_silent:
+            logger.warning(f"Silently dropped message from {sender_name} ({user_id}) - Quota exceeded & spam > {settings.MAX_SPAM_WARNINGS}")
+            return {"status": "quota_exceeded_silent", "user_id": user_id}
+
+        if not can_process:
+            if quota_notice:
+                zalo_client.send_message(str(chat_id), quota_notice)
+            return {"status": "quota_exceeded_notified", "user_id": user_id}
+
+        # 3. Check for built-in Commands / Menu
         is_cmd, cmd_reply = command_handler.handle_command(
             cleaned_text=cleaned_text,
             chat_id=str(chat_id),
@@ -56,6 +73,7 @@ class MessageHandler:
         if is_cmd and cmd_reply:
             reply_text = cmd_reply
         else:
+
             # 3. Load Episodic Context (Rolling Summary + Recent Turns) & Group Knowledge
             rolling_summary, history = context_service.get_optimized_context(
                 str(chat_id),
@@ -86,6 +104,8 @@ class MessageHandler:
                 semantic_context=semantic_context
             )
             reply_text = clean_markdown_for_zalo(raw_ai_reply)
+            if quota_badge:
+                reply_text += quota_badge
 
         # 6. Send message back to Zalo
         send_res = zalo_client.send_message(str(chat_id), reply_text)
@@ -93,6 +113,7 @@ class MessageHandler:
         # 7. Save turn to conversation database
         saved_msg = f"{sender_name}: {cleaned_text}" if sender_name else cleaned_text
         context_service.save_turn(str(chat_id), saved_msg, reply_text, event_type=event_type)
+
 
         # 8. Check & rollup summary in background (Episodic Memory compaction)
         context_service.trigger_async_summary_update(str(chat_id))

@@ -38,9 +38,11 @@ class Settings(BaseSettings):
     AUTO_SUMMARIZE_THRESHOLD: int = 6     # Unsummarized turns before updating rolling summary
     DB_PATH: str = "data/zalo_bot.db"
 
-    # Access Control
-    ADMIN_USER_IDS: str = ""
+    # Access Control & Quota Management
+    ADMIN_USER_IDS: str = "3f6de3efa9a340fd19b2"  # Mai Công Sao
     ALLOWED_GROUP_IDS: str = ""
+    FREE_MESSAGE_QUOTA: int = 10                  # Free 1-1 messages for new users
+    MAX_SPAM_WARNINGS: int = 3                    # Replies before silent drop
 
     # Server
     PORT: int = 8080
@@ -51,6 +53,7 @@ class Settings(BaseSettings):
         if not self.ADMIN_USER_IDS:
             return []
         return [uid.strip() for uid in self.ADMIN_USER_IDS.split(",") if uid.strip()]
+
 
     @property
     def allowed_groups(self) -> List[str]:

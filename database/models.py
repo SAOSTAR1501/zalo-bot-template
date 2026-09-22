@@ -58,3 +58,24 @@ class SemanticMemory(Base):
     source_user = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+class UserQuota(Base):
+    """
+    Rate limiting and access control for 1-1 private chats.
+    - Free tier: 10 messages
+    - Over quota: warning up to 3 times, then silent drop
+    - Admin whitelist: unlimited
+    """
+    __tablename__ = "user_quotas"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, nullable=False, unique=True, index=True)
+    display_name = Column(String, nullable=True)
+    message_count = Column(Integer, default=0)
+    max_quota = Column(Integer, default=10)
+    is_approved = Column(Boolean, default=False)
+    spam_warnings_sent = Column(Integer, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+

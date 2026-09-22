@@ -3,6 +3,7 @@ from services.llm_service import llm_service
 from services.context_service import context_service
 from services.knowledge_service import knowledge_service
 from services.semantic_memory_service import semantic_memory_service
+from services.quota_service import quota_service
 from services.formatter import clean_mention, clean_markdown_for_zalo
 
 __all__ = [
@@ -11,7 +12,9 @@ __all__ = [
     "context_service",
     "knowledge_service",
     "semantic_memory_service",
+    "quota_service",
     "clean_mention",
     "clean_markdown_for_zalo",
 ]
+
 
