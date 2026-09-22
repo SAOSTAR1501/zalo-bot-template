@@ -1,0 +1,134 @@
+import logging
+import subprocess
+import requests
+from typing import List, Dict, Optional
+from config.settings import settings
+
+logger = logging.getLogger(__name__)
+
+
+class LLMService:
+    def __init__(self):
+        self.provider = settings.AI_PROVIDER.lower()
+
+    def generate_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "") -> str:
+        """
+        Dispatches prompt to the configured LLM provider.
+        """
+        if self.provider == "ollama" and (settings.OLLAMA_API_KEY or "localhost" in settings.OLLAMA_BASE_URL or "127.0.0.1" in settings.OLLAMA_BASE_URL):
+            return self._ollama_reply(prompt, history, knowledge_base)
+        elif self.provider == "gemini" and settings.GEMINI_API_KEY:
+            return self._gemini_reply(prompt, history, knowledge_base)
+        elif self.provider in ["openai", "deepseek"] and settings.OPENAI_API_KEY:
+            return self._openai_reply(prompt, history, knowledge_base)
+        elif self.provider == "opencode":
+            return self._opencode_reply(prompt)
+        
+        return f"Bot received: {prompt[:500]}"
+
+    def _build_system_prompt(self, knowledge_base: str = "") -> str:
+        prompt = (
+            "Bạn là Bot Sao Assistant trên Zalo. "
+            "Hãy trả lời ngắn gọn, súc tích, thân thiện bằng tiếng Việt. "
+            "LƯU Ý ĐẶC BIỆT: TUYỆT ĐỐI KHÔNG sử dụng bất kỳ cú pháp markdown nào như **in đậm**, *in nghiêng*, dấu gạch dưới _, hoặc dấu thăng #, vì ứng dụng Zalo hiển thị dạng chữ thô và không hỗ trợ markdown. "
+            "Nếu liệt kê các ý, hãy dùng dấu gạch đầu dòng hoặc dấu chấm tròn •. "
+            "Trong nhóm chat, các tin nhắn có thể có tiền tố 'Tên_thành_viên: nội dung' để bạn phân biệt người đang nói chuyện."
+        )
+        if knowledge_base:
+            prompt += f"\n\n--- KIẾN THỨC ĐÃ LƯU TRỮ CỦA NHÓM ---\n{knowledge_base}\n(Hãy ưu tiên sử dụng kiến thức trên để trả lời các câu hỏi liên quan)."
+        return prompt
+
+    def _ollama_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "") -> str:
+        url = settings.OLLAMA_BASE_URL.rstrip("/") + "/v1/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        if settings.OLLAMA_API_KEY:
+            headers["Authorization"] = f"Bearer {settings.OLLAMA_API_KEY}"
+
+        messages = [{"role": "system", "content": self._build_system_prompt(knowledge_base)}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": settings.OLLAMA_MODEL,
+            "messages": messages
+        }
+        try:
+            r = requests.post(url, json=payload, headers=headers, timeout=40)
+            data = r.json()
+            if "choices" in data and len(data["choices"]) > 0:
+                return data["choices"][0]["message"]["content"]
+            logger.error(f"Ollama response error: {data}")
+            err = data.get("error", {}).get("message") or data.get("error") or str(data)
+            return f"[Ollama Error]: {err}"
+        except Exception as e:
+            logger.error(f"Ollama call failed: {e}")
+            return f"[Ollama Error]: {e}"
+
+    def _gemini_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "") -> str:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
+        contents = []
+        if history:
+            for h in history:
+                role = "user" if h["role"] == "user" else "model"
+                contents.append({"role": role, "parts": [{"text": h["content"]}]})
+        contents.append({"role": "user", "parts": [{"text": prompt}]})
+
+        payload = {
+            "contents": contents,
+            "systemInstruction": {
+                "parts": [{"text": self._build_system_prompt(knowledge_base)}]
+            }
+        }
+        try:
+            r = requests.post(url, json=payload, timeout=30)
+            data = r.json()
+            if "candidates" in data and len(data["candidates"]) > 0:
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            logger.error(f"Gemini error: {data}")
+            err = data.get("error", {}).get("message", "No response")
+            return f"[Gemini Error]: {err}"
+        except Exception as e:
+            logger.error(f"Gemini call failed: {e}")
+            return f"[Gemini Error]: {e}"
+
+    def _openai_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "") -> str:
+        url = settings.OPENAI_BASE_URL.rstrip("/") + "/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        messages = [{"role": "system", "content": self._build_system_prompt(knowledge_base)}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": settings.OPENAI_MODEL,
+            "messages": messages
+        }
+        try:
+            r = requests.post(url, json=payload, headers=headers, timeout=40)
+            data = r.json()
+            if "choices" in data and len(data["choices"]) > 0:
+                return data["choices"][0]["message"]["content"]
+            logger.error(f"OpenAI error: {data}")
+            err = data.get("error", {}).get("message", str(data))
+            return f"[OpenAI Error]: {err}"
+        except Exception as e:
+            logger.error(f"OpenAI call failed: {e}")
+            return f"[OpenAI Error]: {e}"
+
+    def _opencode_reply(self, prompt: str) -> str:
+        try:
+            result = subprocess.run(
+                [settings.OPENCODE_CLI, "prompt", "--non-interactive", prompt],
+                capture_output=True, text=True, timeout=120
+            )
+            return result.stdout or result.stderr or "[opencode no output]"
+        except Exception as e:
+            logger.error(f"Opencode call failed: {e}")
+            return f"[Opencode Error]: {e}"
+
+
+llm_service = LLMService()

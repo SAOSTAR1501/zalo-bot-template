@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  zalo-bot:
+    build: .
+    container_name: zalo-bot
+    restart: always
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

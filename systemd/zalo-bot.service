@@ -1,0 +1,17 @@
+[Unit]
+Description=Zalo Bot Production Service
+After=network.target
+
+[Service]
+Type=simple
+User=devops
+WorkingDirectory=/home/zalo-bot
+ExecStart=/home/zalo-bot/.venv/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8080
+Restart=always
+RestartSec=3
+EnvironmentFile=/home/zalo-bot/.env
+StandardOutput=append:/home/zalo-bot/zalo-bot.log
+StandardError=append:/home/zalo-bot/zalo-bot.log
+
+[Install]
+WantedBy=multi-user.target
