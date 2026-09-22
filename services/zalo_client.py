@@ -78,8 +78,8 @@ class ZaloBotClient:
             logger.error(f"Failed to deleteWebhook: {e}")
             return {"ok": False, "error": str(e)}
 
-    def send_message(self, chat_id: str, text: str) -> Dict[str, Any]:
-        """Send plain text message to a user or group."""
+    def send_message(self, chat_id: str, text: str, reply_to_message_id: Optional[str] = None) -> Dict[str, Any]:
+        """Send plain text message to a user or group, optionally replying to / quoting a specific message."""
         if not self.token:
             logger.error("ZALO_BOT_TOKEN is not configured")
             return {"ok": False, "error": "Missing token"}
@@ -89,6 +89,9 @@ class ZaloBotClient:
             "chat_id": str(chat_id),
             "text": text[:2000]
         }
+        if reply_to_message_id:
+            payload["reply_to_message_id"] = str(reply_to_message_id)
+
         try:
             r = self.session.post(url, json=payload, timeout=(10, 25))
             logger.info(f"Zalo send response ({r.status_code}): {r.text[:300]}")

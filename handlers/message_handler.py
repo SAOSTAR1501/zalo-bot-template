@@ -34,6 +34,12 @@ class MessageHandler:
         user_id = from_user.get("id") or data.get("sender", {}).get("id") or chat_id
         sender_name = from_user.get("display_name", "")
         raw_text = message.get("text", "") or data.get("text", "")
+        message_id = message.get("message_id") or data.get("message_id") or message.get("msg_id") or data.get("msg_id")
+
+        # Quoted / Reply-to message context
+        reply_to_obj = message.get("reply_to_message") or data.get("reply_to_message") or {}
+        reply_to_text = reply_to_obj.get("text", "") if isinstance(reply_to_obj, dict) else ""
+        reply_to_sender = reply_to_obj.get("from", {}).get("display_name", "") if isinstance(reply_to_obj, dict) else ""
 
         # Ignore non-text or empty events
         if not raw_text or not chat_id:
@@ -57,7 +63,11 @@ class MessageHandler:
         if is_cmd:
             logger.info(f"Executing command directly for {sender_name} ({user_id}): {cleaned_text[:50]}")
             if cmd_reply:
-                zalo_client.send_message(str(chat_id), cmd_reply)
+                zalo_client.send_message(
+                    chat_id=str(chat_id),
+                    text=cmd_reply,
+                    reply_to_message_id=str(message_id) if message_id else None
+                )
             return {"status": "command_processed", "chat_id": chat_id}
 
         # 2. Queue conversational messages into Debounce Aggregator
@@ -67,7 +77,10 @@ class MessageHandler:
             "sender_name": sender_name,
             "raw_text": raw_text,
             "cleaned_text": cleaned_text,
-            "event_type": event_type
+            "event_type": event_type,
+            "message_id": str(message_id) if message_id else None,
+            "reply_to_text": reply_to_text,
+            "reply_to_sender": reply_to_sender
         }
 
         aggregator_service.enqueue_message(
@@ -90,14 +103,28 @@ class MessageHandler:
         user_id = latest_event["user_id"]
         sender_name = latest_event["sender_name"]
         event_type = latest_event["event_type"]
+        latest_message_id = latest_event.get("message_id")
 
-        # 1. Combine consecutive text messages
+        # 1. Combine consecutive text messages and incorporate quoted reply context
         if len(events) == 1:
-            combined_cleaned_text = events[0]["cleaned_text"]
+            e = events[0]
+            txt = e["cleaned_text"]
+            if e.get("reply_to_text"):
+                r_sender = e.get("reply_to_sender") or "tin nhắn"
+                combined_cleaned_text = f"[Trả lời tin nhắn của {r_sender}: \"{e['reply_to_text']}\"]\n{txt}"
+            else:
+                combined_cleaned_text = txt
         else:
             # Multi-line consecutive messages
-            text_lines = [e["cleaned_text"] for e in events if e.get("cleaned_text")]
-            combined_cleaned_text = "\n".join(text_lines)
+            lines = []
+            for e in events:
+                txt = e.get("cleaned_text", "")
+                if e.get("reply_to_text"):
+                    r_sender = e.get("reply_to_sender") or "tin nhắn"
+                    lines.append(f"[Trả lời tin nhắn của {r_sender}: \"{e['reply_to_text']}\"] {txt}")
+                else:
+                    lines.append(txt)
+            combined_cleaned_text = "\n".join(lines)
             logger.info(f"Aggregated {len(events)} consecutive messages from {sender_name} ({chat_id}):\n{combined_cleaned_text}")
 
         # 2. Check 1-1 Private Chat Quota & Spam Protection (1 turn per aggregated batch)
@@ -113,7 +140,11 @@ class MessageHandler:
 
         if not can_process:
             if quota_notice:
-                zalo_client.send_message(str(chat_id), quota_notice)
+                zalo_client.send_message(
+                    chat_id=str(chat_id),
+                    text=quota_notice,
+                    reply_to_message_id=latest_message_id
+                )
             return
 
         # 3. Load Episodic Context (Rolling Summary + Recent Turns) & Group Knowledge
@@ -151,8 +182,12 @@ class MessageHandler:
         # 7. Append transient quota badge if applicable
         final_send_text = f"{reply_text}{quota_badge}" if quota_badge else reply_text
 
-        # 8. Send unified message back to Zalo
-        zalo_client.send_message(str(chat_id), final_send_text)
+        # 8. Send unified message back to Zalo quoting the user's message
+        zalo_client.send_message(
+            chat_id=str(chat_id),
+            text=final_send_text,
+            reply_to_message_id=latest_message_id
+        )
 
         # 9. Save turn to conversation database
         saved_msg = f"{sender_name}: {combined_cleaned_text}" if sender_name else combined_cleaned_text
