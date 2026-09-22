@@ -98,8 +98,8 @@ class CommandHandler:
 
             return True, f"✅ Đã lưu lại kiến thức vào kho của nhóm:\n• {content_to_save}"
 
-        # 8. Admin Command: /accept <user_id> [gói] hoặc /duyet <user_id> [gói]
-        accept_match = re.match(r"^(?:/accept|/duyet|duyệt)\s+([a-zA-Z0-9_-]+)(?:\s+(.+))?$", cleaned_text, re.IGNORECASE)
+        # 8. Admin Command: /accept, /duyet, /setlimit, /limit <user_id> [gói]
+        accept_match = re.match(r"^(?:/accept|/duyet|duyệt|/setlimit|/limit)\s+([a-zA-Z0-9_-]+)(?:\s+(.+))?$", cleaned_text, re.IGNORECASE)
         if accept_match:
             if not is_admin_user:
                 return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
