@@ -38,7 +38,9 @@ class Settings(BaseSettings):
     AUTO_SUMMARIZE_THRESHOLD: int = 6     # Unsummarized turns before updating rolling summary
     DB_PATH: str = "data/zalo_bot.db"
 
-    # Access Control & Quota Management
+    # Message Debouncing & Aggregation
+    DEBOUNCE_WAIT_SECONDS: float = 2.5            # Seconds to wait for consecutive messages before batch LLM call
+
     ADMIN_USER_IDS: str = "3f6de3efa9a340fd19b2"  # Mai Công Sao
     ALLOWED_GROUP_IDS: str = ""
     FREE_MESSAGE_QUOTA: int = 10                  # Free 1-1 messages for new users

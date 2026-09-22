@@ -1,11 +1,14 @@
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from config.settings import settings
 from services.zalo_client import zalo_client
 from services.llm_service import llm_service
 from services.context_service import context_service
 from services.knowledge_service import knowledge_service
-from services.formatter import clean_mention, clean_markdown_for_zalo
+from services.semantic_memory_service import semantic_memory_service
+from services.quota_service import quota_service
+from services.aggregator_service import aggregator_service
+from services.formatter import clean_mention, clean_markdown_for_zalo, strip_quota_badges
 from handlers.command_handler import command_handler
 
 logger = logging.getLogger(__name__)
@@ -15,6 +18,7 @@ class MessageHandler:
     def process_webhook_event(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Main entry point for incoming Zalo webhook event.
+        Dispatches commands immediately, and debounces conversation messages into batches.
         """
         event_type = data.get("event_name", "") or data.get("event_type", "")
         message = data.get("message", {}) if isinstance(data.get("message"), dict) else {}
@@ -31,8 +35,6 @@ class MessageHandler:
         sender_name = from_user.get("display_name", "")
         raw_text = message.get("text", "") or data.get("text", "")
 
-        logger.info(f"Incoming event: type={event_type}, chat_id={chat_id}, user={sender_name}({user_id}), text={raw_text[:200]}")
-
         # Ignore non-text or empty events
         if not raw_text or not chat_id:
             return {"status": "ignored", "event": event_type}
@@ -42,27 +44,9 @@ class MessageHandler:
             logger.warning(f"Ignored message from unauthorized chat_id: {chat_id}")
             return {"status": "forbidden", "chat_id": chat_id}
 
-        # 1. Clean mention prefix (@Bot_Name)
         cleaned_text = clean_mention(raw_text)
 
-        # 2. Check 1-1 Private Chat Quota & Spam Protection
-        from services.quota_service import quota_service
-        can_process, is_silent, quota_notice, quota_badge = quota_service.check_user_quota(
-            chat_id=str(chat_id),
-            user_id=str(user_id),
-            display_name=sender_name
-        )
-
-        if is_silent:
-            logger.warning(f"Silently dropped message from {sender_name} ({user_id}) - Quota exceeded & spam > {settings.MAX_SPAM_WARNINGS}")
-            return {"status": "quota_exceeded_silent", "user_id": user_id}
-
-        if not can_process:
-            if quota_notice:
-                zalo_client.send_message(str(chat_id), quota_notice)
-            return {"status": "quota_exceeded_notified", "user_id": user_id}
-
-        # 3. Check for built-in Commands / Menu
+        # 1. Immediate Execution for System & Admin Commands
         is_cmd, cmd_reply = command_handler.handle_command(
             cleaned_text=cleaned_text,
             chat_id=str(chat_id),
@@ -70,58 +54,112 @@ class MessageHandler:
             sender_name=sender_name
         )
 
-        if is_cmd and cmd_reply:
-            reply_text = cmd_reply
+        if is_cmd:
+            logger.info(f"Executing command directly for {sender_name} ({user_id}): {cleaned_text[:50]}")
+            if cmd_reply:
+                zalo_client.send_message(str(chat_id), cmd_reply)
+            return {"status": "command_processed", "chat_id": chat_id}
+
+        # 2. Queue conversational messages into Debounce Aggregator
+        event_info = {
+            "chat_id": str(chat_id),
+            "user_id": str(user_id),
+            "sender_name": sender_name,
+            "raw_text": raw_text,
+            "cleaned_text": cleaned_text,
+            "event_type": event_type
+        }
+
+        aggregator_service.enqueue_message(
+            chat_id=str(chat_id),
+            event_data=event_info,
+            flush_callback=self._process_aggregated_batch
+        )
+
+        return {"status": "queued_for_debounce", "chat_id": chat_id}
+
+    def _process_aggregated_batch(self, chat_id: str, events: List[Dict[str, Any]]):
+        """
+        Executes after debounce timer expires (no new messages for 2.5s).
+        Gathers all consecutive texts into a single prompt, saving tokens & sending 1 unified response.
+        """
+        if not events:
+            return
+
+        latest_event = events[-1]
+        user_id = latest_event["user_id"]
+        sender_name = latest_event["sender_name"]
+        event_type = latest_event["event_type"]
+
+        # 1. Combine consecutive text messages
+        if len(events) == 1:
+            combined_cleaned_text = events[0]["cleaned_text"]
         else:
+            # Multi-line consecutive messages
+            text_lines = [e["cleaned_text"] for e in events if e.get("cleaned_text")]
+            combined_cleaned_text = "\n".join(text_lines)
+            logger.info(f"Aggregated {len(events)} consecutive messages from {sender_name} ({chat_id}):\n{combined_cleaned_text}")
 
-            # 3. Load Episodic Context (Rolling Summary + Recent Turns) & Group Knowledge
-            rolling_summary, history = context_service.get_optimized_context(
-                str(chat_id),
-                max_hours=settings.MAX_CONTEXT_HOURS,
-                recent_count=settings.RECENT_MESSAGES_COUNT
-            )
-            knowledge_base = knowledge_service.get_knowledge_summary(str(chat_id), limit=3)
+        # 2. Check 1-1 Private Chat Quota & Spam Protection (1 turn per aggregated batch)
+        can_process, is_silent, quota_notice, quota_badge = quota_service.check_user_quota(
+            chat_id=str(chat_id),
+            user_id=str(user_id),
+            display_name=sender_name
+        )
 
-            # 4. Semantic Long-Term Memory (RAG + Vector Embedding Search)
-            from services.semantic_memory_service import semantic_memory_service
-            relevant_mems = semantic_memory_service.search_relevant_memories(
-                chat_id=str(chat_id),
-                query=cleaned_text,
-                top_k=3,
-                min_similarity=0.35
-            )
-            semantic_context = semantic_memory_service.format_memories_for_prompt(relevant_mems)
+        if is_silent:
+            logger.warning(f"Silently dropped batch from {sender_name} ({user_id}) - Quota exceeded/blocked")
+            return
 
-            # Format user prompt with sender name for group clarity
-            prompt_with_sender = f"{sender_name}: {cleaned_text}" if sender_name else cleaned_text
+        if not can_process:
+            if quota_notice:
+                zalo_client.send_message(str(chat_id), quota_notice)
+            return
 
-            # 5. Generate AI reply with Tri-Tier Context
-            raw_ai_reply = llm_service.generate_reply(
-                prompt=prompt_with_sender,
-                history=history,
-                knowledge_base=knowledge_base,
-                rolling_summary=rolling_summary,
-                semantic_context=semantic_context
-            )
-            from services.formatter import strip_quota_badges
-            cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
-            reply_text = clean_markdown_for_zalo(cleaned_ai_reply)
+        # 3. Load Episodic Context (Rolling Summary + Recent Turns) & Group Knowledge
+        rolling_summary, history = context_service.get_optimized_context(
+            str(chat_id),
+            max_hours=settings.MAX_CONTEXT_HOURS,
+            recent_count=settings.RECENT_MESSAGES_COUNT
+        )
+        knowledge_base = knowledge_service.get_knowledge_summary(str(chat_id), limit=3)
 
-        # 6. Prepare final text for Zalo (append transient quota badge if applicable)
-        final_send_text = f"{reply_text}{quota_badge}" if (quota_badge and not is_cmd) else reply_text
-        send_res = zalo_client.send_message(str(chat_id), final_send_text)
+        # 4. Semantic Long-Term Memory (RAG + Vector Embedding Search)
+        relevant_mems = semantic_memory_service.search_relevant_memories(
+            chat_id=str(chat_id),
+            query=combined_cleaned_text,
+            top_k=3,
+            min_similarity=0.35
+        )
+        semantic_context = semantic_memory_service.format_memories_for_prompt(relevant_mems)
 
-        # 7. Save clean turn to conversation database (without transient badges)
-        saved_msg = f"{sender_name}: {cleaned_text}" if sender_name else cleaned_text
+        # 5. Format prompt with sender name
+        prompt_with_sender = f"{sender_name}: {combined_cleaned_text}" if sender_name else combined_cleaned_text
+
+        # 6. Generate AI reply with Tri-Tier Context
+        raw_ai_reply = llm_service.generate_reply(
+            prompt=prompt_with_sender,
+            history=history,
+            knowledge_base=knowledge_base,
+            rolling_summary=rolling_summary,
+            semantic_context=semantic_context
+        )
+
+        cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
+        reply_text = clean_markdown_for_zalo(cleaned_ai_reply)
+
+        # 7. Append transient quota badge if applicable
+        final_send_text = f"{reply_text}{quota_badge}" if quota_badge else reply_text
+
+        # 8. Send unified message back to Zalo
+        zalo_client.send_message(str(chat_id), final_send_text)
+
+        # 9. Save turn to conversation database
+        saved_msg = f"{sender_name}: {combined_cleaned_text}" if sender_name else combined_cleaned_text
         context_service.save_turn(str(chat_id), saved_msg, reply_text, event_type=event_type)
 
-        # 8. Check & rollup summary in background (Episodic Memory compaction)
+        # 10. Check & rollup summary in background (Episodic Memory compaction)
         context_service.trigger_async_summary_update(str(chat_id))
-
-        return {"status": "processed", "send_res": send_res}
-
-
 
 
 message_handler = MessageHandler()
-

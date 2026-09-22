@@ -7,17 +7,18 @@ Template mã nguồn hoàn chỉnh cho Chatbot Zalo AI thông minh hỗ trợ Nh
 ## 🌟 Tính Năng Nổi Bật
 
 * **Đa Nhà Cung Cấp LLM**: Hỗ trợ **Ollama Cloud/Local** (`deepseek-v4-pro`, `gemma4:31b`...), **Google Gemini** (`gemini-2.0-flash`), **OpenAI / DeepSeek**.
-* **Episodic Summary Memory (Tiết kiệm >80% Token)**: Sử dụng cơ chế nén ngữ cảnh luân phiên (Rolling Synopsis) kết hợp các lượt chat gần nhất, vừa duy trì mạch hội thoại dài 12 tiếng vừa tối ưu chi phí token vượt trội.
+* **Gom Tin Nhắn Tự Động (Async Debounce Aggregator)**: Tự động gom các tin nhắn gửi dồn dập, liên tục của người dùng trong khoảng 2.5s thành 1 prompt tổng thể duy nhất, giúp bot trả lời đầy đủ, không bị vụn vặt và tiết kiệm token tối đa.
+* **Episodic Summary Memory (Tiết kiệm >80% Token)**: Sử dụng cơ chế nén ngữ cảnh luân phiên (Rolling Synopsis) kết hợp các lượt chat gần nhất, duy trì mạch hội thoại dài 12 tiếng liên tục.
 * **Semantic Long-Term Memory (RAG + Vector Search)**: Tích hợp **FastEmbed (ONNX)** tính toán vector embedding 384 chiều đa ngôn ngữ, tự động tìm kiếm ngữ nghĩa chính xác các sự kiện, quy định, dữ liệu cũ khi người dùng hỏi mà không làm phình token.
-* **Tư Duy Phản Biện (Anti-Sycophancy)**: Cấu hình System Prompt khách quan, không bị dẫn dắt bởi tin đồn hay câu hỏi đánh đố sai sự thật.
+* **Kiểm Soát Hạn Mức & Gói Duyệt (Rate Limiting & Admin Plans)**: Tặng 10 tin miễn phí cho người dùng mới 1-1, tự động Silent Drop khi bị spam quá 3 lần, hỗ trợ Admin cấp hạn mức linh hoạt (`+10, +20 tin`, `homnay`, `tuannay`, `thangnay`, `vinhvien`, `/block`).
 * **Kho Tri Thức Nhóm (Knowledge Base)**:
   * `/save <nội dung>`: Thành viên chủ động lưu kiến thức quan trọng lâu dài (tự động vector hóa).
   * `/knowledge`: Xem kho kiến thức đã lưu của nhóm.
   * `/summary`: Yêu cầu bot tự động tóm tắt các thảo luận trong 12 tiếng qua.
-* **Menu Lệnh & Phím Số Tương Tác**: Gõ `/menu` để xem danh sách hoặc chọn nhanh bằng các phím số `1`, `2`, `3`, `4`, `5`.
+* **Menu Lệnh & Phân Quyền Thông Minh**: Gõ `/menu` để xem menu chức năng; chỉ riêng Admin mới thấy các lệnh quản trị (`/accept`, `/block`, `/unblock`, `/users`).
 * **Bộ Lọc Markdown Chuẩn Zalo**: Tự động loại bỏ các dấu `**`, `*`, `###` và định dạng danh sách thành các dấu chấm tròn `• ` đẹp mắt, phù hợp với giao diện Zalo.
-* **Phân Quyền & Bảo Mật**: Hỗ trợ Whitelist Admin (`ADMIN_USER_IDS`) và Whitelist Nhóm (`ALLOWED_GROUP_IDS`).
 * **Sẵn Sàng Triển Khai (Production Ready)**: Hỗ trợ cả **Docker Compose** và **Systemd Linux Service**.
+
 
 ---
 
