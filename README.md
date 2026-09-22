@@ -6,10 +6,12 @@ Template mã nguồn hoàn chỉnh cho Chatbot Zalo AI thông minh hỗ trợ Nh
 
 ## 🌟 Tính Năng Nổi Bật
 
-* **Đa Nhà Cung Cấp LLM**: Hỗ trợ **Ollama Cloud/Local** (`gemma4:31b`, `llama3.3`...), **Google Gemini** (`gemini-2.0-flash`), **OpenAI / DeepSeek**.
-* **Episodic Summary Memory (Tiết kiệm >80% Token)**: Sử dụng cơ chế nén ngữ cảnh luân phiên (Rolling Synopsis) kết hợp các lượt chat gần nhất, vừa duy trì mạch hội thoại dài 12 tiếng vừa tối ưu chi phí token vượt trội so với sliding window thông thường.
+* **Đa Nhà Cung Cấp LLM**: Hỗ trợ **Ollama Cloud/Local** (`deepseek-v4-pro`, `gemma4:31b`...), **Google Gemini** (`gemini-2.0-flash`), **OpenAI / DeepSeek**.
+* **Episodic Summary Memory (Tiết kiệm >80% Token)**: Sử dụng cơ chế nén ngữ cảnh luân phiên (Rolling Synopsis) kết hợp các lượt chat gần nhất, vừa duy trì mạch hội thoại dài 12 tiếng vừa tối ưu chi phí token vượt trội.
+* **Semantic Long-Term Memory (RAG + Vector Search)**: Tích hợp **FastEmbed (ONNX)** tính toán vector embedding 384 chiều đa ngôn ngữ, tự động tìm kiếm ngữ nghĩa chính xác các sự kiện, quy định, dữ liệu cũ khi người dùng hỏi mà không làm phình token.
+* **Tư Duy Phản Biện (Anti-Sycophancy)**: Cấu hình System Prompt khách quan, không bị dẫn dắt bởi tin đồn hay câu hỏi đánh đố sai sự thật.
 * **Kho Tri Thức Nhóm (Knowledge Base)**:
-  * `/save <nội dung>`: Thành viên chủ động lưu kiến thức quan trọng lâu dài.
+  * `/save <nội dung>`: Thành viên chủ động lưu kiến thức quan trọng lâu dài (tự động vector hóa).
   * `/knowledge`: Xem kho kiến thức đã lưu của nhóm.
   * `/summary`: Yêu cầu bot tự động tóm tắt các thảo luận trong 12 tiếng qua.
 * **Menu Lệnh & Phím Số Tương Tác**: Gõ `/menu` để xem danh sách hoặc chọn nhanh bằng các phím số `1`, `2`, `3`, `4`, `5`.

@@ -76,9 +76,20 @@ class CommandHandler:
                 created_by=sender_name or "Thành viên",
                 topic="Kiến thức ghi nhớ"
             )
+
+            # Also index into Semantic Long-Term Memory (Vector Embedding)
+            from services.semantic_memory_service import semantic_memory_service
+            semantic_memory_service.async_auto_index_fact(
+                chat_id=chat_id,
+                content=content_to_save,
+                category="knowledge",
+                source_user=sender_name or "Thành viên"
+            )
+
             return True, f"✅ Đã lưu lại kiến thức vào kho của nhóm:\n• {content_to_save}"
 
         return False, None
 
 
 command_handler = CommandHandler()
+

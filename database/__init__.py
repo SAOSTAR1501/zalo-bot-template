@@ -1,5 +1,5 @@
 from database.connection import engine, SessionLocal, init_db, get_db
-from database.models import Base, MessageLog, GroupKnowledge, GroupContextSummary
+from database.models import Base, MessageLog, GroupKnowledge, GroupContextSummary, SemanticMemory
 
 __all__ = [
     "engine",
@@ -10,4 +10,6 @@ __all__ = [
     "MessageLog",
     "GroupKnowledge",
     "GroupContextSummary",
+    "SemanticMemory",
 ]
+

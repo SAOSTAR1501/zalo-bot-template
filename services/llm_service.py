@@ -16,17 +16,18 @@ class LLMService:
         prompt: str,
         history: Optional[List[Dict[str, str]]] = None,
         knowledge_base: str = "",
-        rolling_summary: str = ""
+        rolling_summary: str = "",
+        semantic_context: str = ""
     ) -> str:
         """
-        Dispatches prompt to the configured LLM provider with rolling summary and knowledge base.
+        Dispatches prompt to the configured LLM provider with rolling summary, semantic RAG memory, and knowledge base.
         """
         if self.provider == "ollama" and (settings.OLLAMA_API_KEY or "localhost" in settings.OLLAMA_BASE_URL or "127.0.0.1" in settings.OLLAMA_BASE_URL):
-            return self._ollama_reply(prompt, history, knowledge_base, rolling_summary)
+            return self._ollama_reply(prompt, history, knowledge_base, rolling_summary, semantic_context)
         elif self.provider == "gemini" and settings.GEMINI_API_KEY:
-            return self._gemini_reply(prompt, history, knowledge_base, rolling_summary)
+            return self._gemini_reply(prompt, history, knowledge_base, rolling_summary, semantic_context)
         elif self.provider in ["openai", "deepseek"] and settings.OPENAI_API_KEY:
-            return self._openai_reply(prompt, history, knowledge_base, rolling_summary)
+            return self._openai_reply(prompt, history, knowledge_base, rolling_summary, semantic_context)
         elif self.provider == "opencode":
             return self._opencode_reply(prompt)
         
@@ -85,27 +86,31 @@ class LLMService:
             logger.error(f"Error calling LLM for summarization: {e}")
         return previous_summary or chunk_text[:200]
 
-    def _build_system_prompt(self, knowledge_base: str = "", rolling_summary: str = "") -> str:
+    def _build_system_prompt(self, knowledge_base: str = "", rolling_summary: str = "", semantic_context: str = "") -> str:
         prompt = (
             "Bạn là Bot Sao Assistant trên Zalo. "
             "Hãy trả lời ngắn gọn, súc tích, thân thiện bằng tiếng Việt. "
-            "LƯU Ý ĐẶC BIỆT: TUYỆT ĐỐI KHÔNG sử dụng bất kỳ cú pháp markdown nào như **in đậm**, *in nghiêng*, dấu gạch dưới _, hoặc dấu thăng #, vì ứng dụng Zalo hiển thị dạng chữ thô và không hỗ trợ markdown. "
+            "LƯU Ý ĐỊNH DẠNG: TUYỆT ĐỐI KHÔNG sử dụng bất kỳ cú pháp markdown nào như **in đậm**, *in nghiêng*, dấu gạch dưới _, hoặc dấu thăng #, vì ứng dụng Zalo hiển thị dạng chữ thô và không hỗ trợ markdown. "
             "Nếu liệt kê các ý, hãy dùng dấu gạch đầu dòng hoặc dấu chấm tròn •. "
-            "Trong nhóm chat, các tin nhắn có thể có tiền tố 'Tên_thành_viên: nội dung' để bạn phân biệt người đang nói chuyện."
+            "Trong nhóm chat, các tin nhắn có thể có tiền tố 'Tên_thành_viên: nội dung' để bạn phân biệt người đang nói chuyện.\n\n"
+            "TƯ DUY PHẢN BIỆN & CHÍNH XÁC: Khi người dùng đưa ra nhận định hoặc thử thách kiến thức, hãy luôn đối chiếu với sự thật khách quan. "
+            "Nếu thông tin từ người dùng là giả thuyết, tin đồn hoặc chưa chính xác, hãy lịch sự đính chính và phân tích khách quan, TUYỆT ĐỐI KHÔNG xu nịnh hay vội vã nhận lỗi về điều mình không sai."
         )
+        if semantic_context:
+            prompt += f"\n\n--- BỘ NHỚ TRI THỨC VĨNH VIỄN (SEMANTIC MEMORY) ---\n{semantic_context}\n(Đây là các thông tin, sự thật hoặc quy định được lưu trữ lâu dài của nhóm)."
         if rolling_summary:
             prompt += f"\n\n--- TÓM TẮT BỐI CẢNH HỘI THOẠI TRƯỚC ĐÓ ---\n{rolling_summary}"
         if knowledge_base:
             prompt += f"\n\n--- KIẾN THỨC ĐÃ LƯU TRỮ CỦA NHÓM ---\n{knowledge_base}\n(Hãy ưu tiên sử dụng kiến thức trên để trả lời các câu hỏi liên quan)."
         return prompt
 
-    def _ollama_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "", rolling_summary: str = "") -> str:
+    def _ollama_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "", rolling_summary: str = "", semantic_context: str = "") -> str:
         url = settings.OLLAMA_BASE_URL.rstrip("/") + "/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
         if settings.OLLAMA_API_KEY:
             headers["Authorization"] = f"Bearer {settings.OLLAMA_API_KEY}"
 
-        messages = [{"role": "system", "content": self._build_system_prompt(knowledge_base, rolling_summary)}]
+        messages = [{"role": "system", "content": self._build_system_prompt(knowledge_base, rolling_summary, semantic_context)}]
         if history:
             messages.extend(history)
         messages.append({"role": "user", "content": prompt})
@@ -126,7 +131,7 @@ class LLMService:
             logger.error(f"Ollama call failed: {e}")
             return f"[Ollama Error]: {e}"
 
-    def _gemini_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "", rolling_summary: str = "") -> str:
+    def _gemini_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "", rolling_summary: str = "", semantic_context: str = "") -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
         contents = []
         if history:
@@ -138,7 +143,7 @@ class LLMService:
         payload = {
             "contents": contents,
             "systemInstruction": {
-                "parts": [{"text": self._build_system_prompt(knowledge_base, rolling_summary)}]
+                "parts": [{"text": self._build_system_prompt(knowledge_base, rolling_summary, semantic_context)}]
             }
         }
         try:
@@ -153,13 +158,13 @@ class LLMService:
             logger.error(f"Gemini call failed: {e}")
             return f"[Gemini Error]: {e}"
 
-    def _openai_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "", rolling_summary: str = "") -> str:
+    def _openai_reply(self, prompt: str, history: Optional[List[Dict[str, str]]] = None, knowledge_base: str = "", rolling_summary: str = "", semantic_context: str = "") -> str:
         url = settings.OPENAI_BASE_URL.rstrip("/") + "/chat/completions"
         headers = {
             "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
             "Content-Type": "application/json"
         }
-        messages = [{"role": "system", "content": self._build_system_prompt(knowledge_base, rolling_summary)}]
+        messages = [{"role": "system", "content": self._build_system_prompt(knowledge_base, rolling_summary, semantic_context)}]
         if history:
             messages.extend(history)
         messages.append({"role": "user", "content": prompt})
@@ -179,6 +184,7 @@ class LLMService:
         except Exception as e:
             logger.error(f"OpenAI call failed: {e}")
             return f"[OpenAI Error]: {e}"
+
 
     def _opencode_reply(self, prompt: str) -> str:
         try:

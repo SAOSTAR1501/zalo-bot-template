@@ -64,29 +64,41 @@ class MessageHandler:
             )
             knowledge_base = knowledge_service.get_knowledge_summary(str(chat_id), limit=3)
 
+            # 4. Semantic Long-Term Memory (RAG + Vector Embedding Search)
+            from services.semantic_memory_service import semantic_memory_service
+            relevant_mems = semantic_memory_service.search_relevant_memories(
+                chat_id=str(chat_id),
+                query=cleaned_text,
+                top_k=3,
+                min_similarity=0.35
+            )
+            semantic_context = semantic_memory_service.format_memories_for_prompt(relevant_mems)
+
             # Format user prompt with sender name for group clarity
             prompt_with_sender = f"{sender_name}: {cleaned_text}" if sender_name else cleaned_text
 
-            # 4. Generate AI reply
+            # 5. Generate AI reply with Tri-Tier Context
             raw_ai_reply = llm_service.generate_reply(
                 prompt=prompt_with_sender,
                 history=history,
                 knowledge_base=knowledge_base,
-                rolling_summary=rolling_summary
+                rolling_summary=rolling_summary,
+                semantic_context=semantic_context
             )
             reply_text = clean_markdown_for_zalo(raw_ai_reply)
 
-        # 5. Send message back to Zalo
+        # 6. Send message back to Zalo
         send_res = zalo_client.send_message(str(chat_id), reply_text)
 
-        # 6. Save turn to conversation database
+        # 7. Save turn to conversation database
         saved_msg = f"{sender_name}: {cleaned_text}" if sender_name else cleaned_text
         context_service.save_turn(str(chat_id), saved_msg, reply_text, event_type=event_type)
 
-        # 7. Check & rollup summary in background (Episodic Memory compaction)
+        # 8. Check & rollup summary in background (Episodic Memory compaction)
         context_service.trigger_async_summary_update(str(chat_id))
 
         return {"status": "processed", "send_res": send_res}
+
 
 
 message_handler = MessageHandler()

@@ -40,3 +40,21 @@ class GroupContextSummary(Base):
     summary = Column(Text, nullable=False, default="")
     last_summarized_id = Column(Integer, default=0)
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SemanticMemory(Base):
+    """
+    Semantic Long-Term Memory (RAG + Vector Embedding):
+    Stores key facts, decisions, rules, and knowledge with 384-dimensional dense embeddings.
+    Enables instant semantic retrieval of relevant facts without token bloat.
+    """
+    __tablename__ = "semantic_memories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    chat_id = Column(String, nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    category = Column(String, default="fact", index=True)  # fact | decision | rule | task | knowledge
+    embedding_json = Column(Text, nullable=False)  # JSON-serialized float array
+    source_user = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
