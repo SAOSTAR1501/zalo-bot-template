@@ -1,6 +1,8 @@
 import logging
 import subprocess
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from typing import List, Dict, Optional
 from config.settings import settings
 
@@ -10,6 +12,24 @@ logger = logging.getLogger(__name__)
 class LLMService:
     def __init__(self):
         self.provider = settings.AI_PROVIDER.lower()
+        self._init_session()
+
+    def _init_session(self):
+        """Initializes a persistent HTTP session with connection pooling and auto-retries."""
+        self.session = requests.Session()
+        retries = Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504],
+            raise_on_status=False
+        )
+        adapter = HTTPAdapter(
+            pool_connections=20,
+            pool_maxsize=40,
+            max_retries=retries
+        )
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     def generate_reply(
         self,
@@ -23,14 +43,18 @@ class LLMService:
         """
         Dispatches prompt to the configured LLM provider with rolling summary, semantic RAG memory, knowledge base, and optional image.
         """
-        if self.provider == "ollama" and (settings.OLLAMA_API_KEY or "localhost" in settings.OLLAMA_BASE_URL or "127.0.0.1" in settings.OLLAMA_BASE_URL):
-            return self._ollama_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data)
-        elif self.provider == "gemini" and settings.GEMINI_API_KEY:
-            return self._gemini_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data)
-        elif self.provider in ["openai", "deepseek"] and settings.OPENAI_API_KEY:
-            return self._openai_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data)
-        elif self.provider == "opencode":
-            return self._opencode_reply(prompt)
+        try:
+            if self.provider == "ollama" and (settings.OLLAMA_API_KEY or "localhost" in settings.OLLAMA_BASE_URL or "127.0.0.1" in settings.OLLAMA_BASE_URL):
+                return self._ollama_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data)
+            elif self.provider == "gemini" and settings.GEMINI_API_KEY:
+                return self._gemini_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data)
+            elif self.provider in ["openai", "deepseek"] and settings.OPENAI_API_KEY:
+                return self._openai_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data)
+            elif self.provider == "opencode":
+                return self._opencode_reply(prompt)
+        except Exception as e:
+            logger.error(f"Error in generate_reply: {e}")
+            return "Dạ hiện tại đường truyền kết nối AI đang bị gián đoạn đôi chút, bạn vui lòng gửi lại tin nhắn sau vài giây nhé!"
         
         return f"Bot received: {prompt[:500]}"
 
@@ -61,14 +85,14 @@ class LLMService:
                         {"role": "user", "content": prompt}
                     ]
                 }
-                r = requests.post(url, json=payload, headers=headers, timeout=30)
+                r = self.session.post(url, json=payload, headers=headers, timeout=(5, 30))
                 data = r.json()
                 if "choices" in data and len(data["choices"]) > 0:
                     return data["choices"][0]["message"]["content"].strip()
             elif self.provider == "gemini" and settings.GEMINI_API_KEY:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
                 payload = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
-                r = requests.post(url, json=payload, timeout=30)
+                r = self.session.post(url, json=payload, timeout=(5, 30))
                 data = r.json()
                 if "candidates" in data and len(data["candidates"]) > 0:
                     return data["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -79,7 +103,7 @@ class LLMService:
                     "model": settings.OPENAI_MODEL,
                     "messages": [{"role": "user", "content": prompt}]
                 }
-                r = requests.post(url, json=payload, headers=headers, timeout=30)
+                r = self.session.post(url, json=payload, headers=headers, timeout=(5, 30))
                 data = r.json()
                 if "choices" in data and len(data["choices"]) > 0:
                     return data["choices"][0]["message"]["content"].strip()
@@ -157,16 +181,15 @@ class LLMService:
             "messages": messages
         }
         try:
-            r = requests.post(url, json=payload, headers=headers, timeout=50)
+            r = self.session.post(url, json=payload, headers=headers, timeout=(6, 45))
             data = r.json()
             if "choices" in data and len(data["choices"]) > 0:
                 return data["choices"][0]["message"]["content"]
             logger.error(f"Ollama/Kimi response error: {data}")
-            err = data.get("error", {}).get("message") or data.get("error") or str(data)
-            return f"[AI Error]: {err}"
+            return "Dạ máy chủ AI đang phản hồi chậm, bạn vui lòng gửi lại tin nhắn nhé!"
         except Exception as e:
             logger.error(f"Ollama/Kimi call failed: {e}")
-            return f"[AI Error]: {e}"
+            return "Dạ hiện tại đường truyền kết nối AI đang bị gián đoạn đôi chút, bạn vui lòng thử lại sau vài giây nhé!"
 
     def _gemini_reply(
         self,
