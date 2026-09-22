@@ -16,10 +16,11 @@ class QuotaService:
     - Free tier: 10 messages
     - Plans:
         • +N tin (10, 20, 50, 100)
-        • homnay / today (đến 23:59 hôm nay)
+        • homnay / today (24h)
         • tuannay / week (7 ngày)
         • thangnay / month (30 ngày)
-        • vinhvien / full (vĩnh viễn)
+        • vinhvien / permanent (vĩnh viễn)
+        • reset / free (trả về 10 tin mặc định)
     - Blocked users: immediately dropped silently
     """
 
@@ -103,7 +104,19 @@ class QuotaService:
                     db.commit()
                     return True, False, None, None
 
-            # 5. Check count-based quota (Free tier or +N tin)
+            # 5. Check if plan was marked expired
+            if record.plan_name == "expired":
+                record.spam_warnings_sent += 1
+                record.updated_at = datetime.utcnow()
+                db.commit()
+                if record.spam_warnings_sent <= settings.MAX_SPAM_WARNINGS:
+                    notice = "Gói sử dụng của bạn đã hết hạn, liên hệ Admin Sao đẹp trai để được gia hạn thêm."
+                    return False, False, notice, None
+                else:
+                    logger.warning(f"User {user_id} ({display_name}) expired & spammed > {settings.MAX_SPAM_WARNINGS} times. Dropping silently.")
+                    return False, True, None, None
+
+            # 6. Check count-based quota (Free tier or +N tin)
             if record.message_count < record.max_quota:
                 record.message_count += 1
                 record.updated_at = datetime.utcnow()
@@ -113,16 +126,22 @@ class QuotaService:
                 if record.message_count >= record.max_quota:
                     self._notify_admin_quota_exhausted(str(user_id), str(record.display_name or display_name))
 
-                badge = f"\n\n(💡 Tin nhắn {record.message_count}/{record.max_quota} miễn phí)"
+                if record.plan_name == "free":
+                    badge = f"\n\n(💡 Tin nhắn {record.message_count}/{record.max_quota} miễn phí)"
+                else:
+                    badge = f"\n\n(💡 Tin nhắn {record.message_count}/{record.max_quota} - Gói {record.plan_name})"
                 return True, False, None, badge
 
-            # 6. Exceeded quota
+            # 7. Exceeded count-based quota
             record.spam_warnings_sent += 1
             record.updated_at = datetime.utcnow()
             db.commit()
 
             if record.spam_warnings_sent <= settings.MAX_SPAM_WARNINGS:
-                notice = "Bạn sử dụng hết 10 tin nhắn miễn phí rồi, liên hệ Admin Sao đẹp trai để được mở rộng quyền"
+                if record.plan_name == "free":
+                    notice = "Bạn sử dụng hết 10 tin nhắn miễn phí rồi, liên hệ Admin Sao đẹp trai để được mở rộng quyền."
+                else:
+                    notice = f"Bạn đã sử dụng hết hạn mức {record.max_quota} tin nhắn rồi, liên hệ Admin Sao đẹp trai để được gia hạn thêm."
                 return False, False, notice, None
             else:
                 # Silent drop to save monthly Zalo messages
@@ -136,20 +155,21 @@ class QuotaService:
             db.close()
 
     def _notify_admin_quota_exhausted(self, user_id: str, display_name: str):
-        """Sends alert message to Admin when a user finishes free tier."""
+        """Sends alert message to Admin when a user finishes free tier or quota."""
         for admin_id in settings.admin_ids:
             try:
                 alert_text = (
                     f"🔔 THÔNG BÁO ADMIN:\n"
                     f"Người dùng: {display_name}\n"
                     f"User ID: {user_id}\n"
-                    f"Đã sử dụng hết {settings.FREE_MESSAGE_QUOTA} tin nhắn miễn phí.\n\n"
-                    f"👉 Cú pháp duyệt hạn mức:\n"
-                    f"• /accept {user_id} 10 (Thêm 10 tin)\n"
-                    f"• /accept {user_id} homnay (Mở hôm nay)\n"
+                    f"Đã sử dụng hết hạn mức tin nhắn.\n\n"
+                    f"👉 Cú pháp duyệt / đổi gói:\n"
+                    f"• /accept {user_id} 10 (Cộng 10 tin)\n"
+                    f"• /accept {user_id} homnay (Mở hôm nay - 24h)\n"
                     f"• /accept {user_id} tuannay (Mở 7 ngày)\n"
                     f"• /accept {user_id} thangnay (Mở 30 ngày)\n"
                     f"• /accept {user_id} vinhvien (Mở vĩnh viễn)\n"
+                    f"• /accept {user_id} reset (Reset về 10 tin miễn phí)\n"
                     f"• /block {user_id} (Chặn người này)"
                 )
                 zalo_client.send_message(admin_id, alert_text)
@@ -158,15 +178,19 @@ class QuotaService:
 
     def apply_plan(self, target_user_id: str, plan_input: str) -> Tuple[bool, str]:
         """
-        Applies a predefined quota plan to a user.
+        Applies / Switches a quota plan for a user seamlessly from any previous plan (even permanent).
         Supported plans:
-            - Number (10, 20, 50, 100): adds +N messages
-            - homnay / today / ngay: unlimited until end of today
-            - tuannay / week / tuan: unlimited for 7 days
-            - thangnay / month / thang: unlimited for 30 days
-            - vinhvien / full / vohan / permanent: unlimited forever
+            - Number (10, 20, 50, 100): grants N messages
+            - homnay / today / ngay / 24h: unlimited for 24 hours
+            - tuannay / week / 7ngay: unlimited for 7 days
+            - thangnay / month / 30ngay: unlimited for 30 days
+            - vinhvien / permanent / full / unlimit: unlimited forever
+            - reset / free / macdinh: resets user back to 10 free messages
         """
-        plan_clean = plan_input.strip().lower() if plan_input else "vinhvien"
+        plan_raw = (plan_input or "").strip().lower()
+        # Clean extra characters or words
+        clean = plan_raw.replace("gói", "").replace("mở", "").replace("tin", "").strip()
+        clean = clean.lstrip("+").strip()
         now = datetime.utcnow()
 
         db = SessionLocal()
@@ -195,53 +219,73 @@ class QuotaService:
             user_msg = ""
             admin_msg = ""
 
-            # Case 1: Numeric count (+10, +20, +50...)
-            if plan_clean.isdigit():
-                add_count = int(plan_clean)
-                base_quota = max(record.message_count, record.max_quota)
-                record.max_quota = base_quota + add_count
-                record.is_approved = False
-                record.plan_name = f"+{add_count}"
-                record.expire_at = None
-                remaining = record.max_quota - record.message_count
-                user_msg = f"🎉 Admin Sao đẹp trai đã cộng thêm {add_count} tin nhắn cho bạn! (Hạn mức còn lại: {remaining} tin). Bạn có thể tiếp tục trò chuyện nhé. 😊"
-                admin_msg = f"✅ Đã cộng thêm {add_count} tin nhắn cho {name} (ID: {target_user_id}). Hạn mức mới: {record.message_count}/{record.max_quota} (còn {remaining} tin)."
-
-            # Case 2: Today (Mở hôm nay)
-            elif plan_clean in ["homnay", "today", "ngay", "1ngay"]:
-                # End of today UTC (approx 24 hours)
-                record.expire_at = now + timedelta(hours=24)
-                record.is_approved = True
-                record.plan_name = "today"
-                user_msg = "🎉 Bạn đã được Admin Sao đẹp trai mở quyền sử dụng KHÔNG GIỚI HẠN trong ngày hôm nay! Hãy thoải mái trò chuyện cùng bot nhé. 😊"
-                admin_msg = f"✅ Đã mở quyền sử dụng HÔM NAY cho {name} (ID: {target_user_id}) thành công!"
-
-            # Case 3: Week (Mở tuần này - 7 ngày)
-            elif plan_clean in ["tuannay", "week", "tuan", "7ngay"]:
-                record.expire_at = now + timedelta(days=7)
-                record.is_approved = True
-                record.plan_name = "week"
-                user_msg = "🎉 Bạn đã được Admin Sao đẹp trai mở quyền sử dụng KHÔNG GIỚI HẠN trong 7 NGÀY! Hãy thoải mái trò chuyện cùng bot nhé. 😊"
-                admin_msg = f"✅ Đã mở quyền sử dụng 7 NGÀY cho {name} (ID: {target_user_id}) thành công!"
-
-            # Case 4: Month (Mở tháng này - 30 ngày)
-            elif plan_clean in ["thangnay", "month", "thang", "30ngay"]:
-                record.expire_at = now + timedelta(days=30)
-                record.is_approved = True
-                record.plan_name = "month"
-                user_msg = "🎉 Bạn đã được Admin Sao đẹp trai mở quyền sử dụng KHÔNG GIỚI HẠN trong 30 NGÀY! Hãy thoải mái trò chuyện cùng bot nhé. 😊"
-                admin_msg = f"✅ Đã mở quyền sử dụng 30 NGÀY cho {name} (ID: {target_user_id}) thành công!"
-
-            # Case 5: Permanent / Unlimited (Vĩnh viễn)
-            elif plan_clean in ["vinhvien", "full", "vohan", "permanent", "unlimited"]:
+            # Case 1: Permanent / Unlimited (Vĩnh viễn)
+            if clean in ["vinhvien", "vinh vien", "vĩnh viễn", "vĩnh vien", "full", "vohan", "vô hạn", "permanent", "unlimited", "vv", "all", ""]:
                 record.expire_at = None
                 record.is_approved = True
                 record.plan_name = "permanent"
                 user_msg = "🎉 Bạn đã được Admin Sao đẹp trai cấp quyền sử dụng VĨNH VIỄN KHÔNG GIỚI HẠN! Bạn có thể thoải mái trò chuyện cùng bot nhé. 😊"
                 admin_msg = f"✅ Đã cấp quyền VĨNH VIỄN cho {name} (ID: {target_user_id}) thành công!"
 
+            # Case 2: Reset to Free default (10 tin miễn phí)
+            elif clean in ["reset", "free", "macdinh", "mặc định", "mac dinh", "khoiphuc", "khôi phục", "0"]:
+                record.expire_at = None
+                record.is_approved = False
+                record.plan_name = "free"
+                record.message_count = 0
+                record.max_quota = settings.FREE_MESSAGE_QUOTA
+                user_msg = f"🎉 Tài khoản của bạn đã được Admin cài đặt lại gói {settings.FREE_MESSAGE_QUOTA} tin nhắn miễn phí. Bạn có thể tiếp tục trò chuyện nhé. 😊"
+                admin_msg = f"✅ Đã RESET tài khoản {name} (ID: {target_user_id}) về {settings.FREE_MESSAGE_QUOTA} tin nhắn miễn phí mặc định!"
+
+            # Case 3: Today (Mở hôm nay - 24 giờ)
+            elif clean in ["homnay", "hom nay", "hôm nay", "today", "ngay", "ngày", "1ngay", "1 ngày", "24h"]:
+                record.expire_at = now + timedelta(hours=24)
+                record.is_approved = True
+                record.plan_name = "today"
+                record.message_count = 0
+                user_msg = "🎉 Bạn đã được Admin Sao đẹp trai mở quyền sử dụng KHÔNG GIỚI HẠN trong 24 giờ hôm nay! Hãy thoải mái trò chuyện cùng bot nhé. 😊"
+                admin_msg = f"✅ Đã chuyển sang gói HÔM NAY (24h) cho {name} (ID: {target_user_id}) thành công!"
+
+            # Case 4: Week (Mở tuần này - 7 ngày)
+            elif clean in ["tuannay", "tuan nay", "tuần này", "tuần", "tuan", "week", "7ngay", "7 ngày", "7d"]:
+                record.expire_at = now + timedelta(days=7)
+                record.is_approved = True
+                record.plan_name = "week"
+                record.message_count = 0
+                user_msg = "🎉 Bạn đã được Admin Sao đẹp trai mở quyền sử dụng KHÔNG GIỚI HẠN trong 7 NGÀY! Hãy thoải mái trò chuyện cùng bot nhé. 😊"
+                admin_msg = f"✅ Đã chuyển sang gói 7 NGÀY cho {name} (ID: {target_user_id}) thành công!"
+
+            # Case 5: Month (Mở tháng này - 30 ngày)
+            elif clean in ["thangnay", "thang nay", "tháng này", "tháng", "thang", "month", "30ngay", "30 ngày", "30d", "1thang", "1 tháng"]:
+                record.expire_at = now + timedelta(days=30)
+                record.is_approved = True
+                record.plan_name = "month"
+                record.message_count = 0
+                user_msg = "🎉 Bạn đã được Admin Sao đẹp trai mở quyền sử dụng KHÔNG GIỚI HẠN trong 30 NGÀY! Hãy thoải mái trò chuyện cùng bot nhé. 😊"
+                admin_msg = f"✅ Đã chuyển sang gói 30 NGÀY cho {name} (ID: {target_user_id}) thành công!"
+
+            # Case 6: Numeric count (+10, +20, +50, +100...)
+            elif clean.isdigit() and int(clean) > 0:
+                add_count = int(clean)
+                record.expire_at = None
+                record.is_approved = False
+                record.plan_name = f"+{add_count}"
+                record.message_count = 0
+                record.max_quota = add_count
+                user_msg = f"🎉 Admin Sao đẹp trai đã cấp {add_count} tin nhắn cho bạn! Bạn có thể tiếp tục trò chuyện nhé. 😊"
+                admin_msg = f"✅ Đã cấp gói {add_count} tin nhắn cho {name} (ID: {target_user_id}). Hạn mức: 0/{add_count} tin."
+
             else:
-                return False, f"Gói '{plan_input}' không hợp lệ. Các gói hỗ trợ: 10, 20, 50, homnay, tuannay, thangnay, vinhvien."
+                return False, (
+                    f"⚠️ Gói '{plan_input}' không hợp lệ.\n"
+                    f"👉 Các gói hỗ trợ:\n"
+                    f"• 10, 20, 50, 100 (Cấp số lượng tin)\n"
+                    f"• homnay (Mở 24h)\n"
+                    f"• tuannay (Mở 7 ngày)\n"
+                    f"• thangnay (Mở 30 ngày)\n"
+                    f"• vinhvien (Mở vĩnh viễn)\n"
+                    f"• reset (Về 10 tin mặc định)"
+                )
 
             db.commit()
 
@@ -309,7 +353,7 @@ class QuotaService:
         finally:
             db.close()
 
-    def list_users(self, limit: int = 15) -> str:
+    def list_users(self, limit: int = 20) -> str:
         """Returns formatted string of recent users and their quotas."""
         db = SessionLocal()
         try:
@@ -322,14 +366,20 @@ class QuotaService:
                     status = "🚫 ĐÃ BỊ CHẶN"
                 elif r.is_approved:
                     if r.expire_at:
-                        exp_str = r.expire_at.strftime("%d/%m %H:%M")
-                        status = f"Gói {r.plan_name} (Hạn: {exp_str})"
+                        if datetime.utcnow() <= r.expire_at:
+                            exp_vn = r.expire_at + timedelta(hours=7)
+                            exp_str = exp_vn.strftime("%d/%m %H:%M")
+                            status = f"✨ Gói {r.plan_name} (Hạn: {exp_str}) [Đã dùng {r.message_count} tin]"
+                        else:
+                            status = f"⏳ Gói {r.plan_name} (ĐÃ HẾT HẠN)"
                     else:
-                        status = "Vĩnh viễn (Không giới hạn)"
+                        status = f"👑 Vĩnh viễn (Không giới hạn) [Đã dùng {r.message_count} tin]"
+                elif r.plan_name == "expired":
+                    status = f"⏳ Hết hạn gói (Spam: {r.spam_warnings_sent})"
                 else:
-                    status = f"{r.message_count}/{r.max_quota} tin"
+                    status = f"📊 {r.message_count}/{r.max_quota} tin (Gói {r.plan_name})"
                     if r.message_count >= r.max_quota:
-                        status += f" (Hết hạn, spam: {r.spam_warnings_sent})"
+                        status += f" [HẾT LƯỢT, spam: {r.spam_warnings_sent}]"
                 lines.append(f"• {r.display_name or 'N/A'} (ID: {r.user_id}): {status}")
             return "\n".join(lines)
         except Exception as e:

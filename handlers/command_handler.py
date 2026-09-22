@@ -20,8 +20,8 @@ class CommandHandler:
         if is_admin:
             menu += (
                 "\n\n👑 QUẢN TRỊ VIÊN (ADMIN ONLY):\n"
-                "• /accept <user_id> [gói] : Cấp quyền theo gói\n"
-                "  (Gói: 10, 20, 50, homnay, tuannay, thangnay, vinhvien)\n"
+                "• /accept <user_id> [gói] : Cấp / Chuyển đổi gói\n"
+                "  (Gói: 10, 20, 50, homnay, tuannay, thangnay, vinhvien, reset)\n"
                 "• /block <user_id> : Khóa / Chặn người dùng vĩnh viễn\n"
                 "• /unblock <user_id> : Mở khóa cho người dùng\n"
                 "• /users : Xem danh sách người dùng & hạn mức"
@@ -99,17 +99,17 @@ class CommandHandler:
             return True, f"✅ Đã lưu lại kiến thức vào kho của nhóm:\n• {content_to_save}"
 
         # 8. Admin Command: /accept <user_id> [gói] hoặc /duyet <user_id> [gói]
-        accept_match = re.match(r"^(?:/accept|/duyet|duyệt[:\s])\s*([a-zA-Z0-9_-]+)(?:\s+([\w\d]+))?$", cleaned_text, re.IGNORECASE)
+        accept_match = re.match(r"^(?:/accept|/duyet|duyệt)\s+([a-zA-Z0-9_-]+)(?:\s+(.+))?$", cleaned_text, re.IGNORECASE)
         if accept_match:
             if not is_admin_user:
                 return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
             target_uid = accept_match.group(1).strip()
-            plan_str = accept_match.group(2) or "vinhvien"
+            plan_str = (accept_match.group(2) or "vinhvien").strip()
             ok, msg = quota_service.apply_plan(target_uid, plan_str)
             return True, msg
 
         # 9. Admin Command: /block <user_id> (Chặn người dùng)
-        block_match = re.match(r"^(?:/block|/chan|chặn[:\s])\s*([a-zA-Z0-9_-]+)$", cleaned_text, re.IGNORECASE)
+        block_match = re.match(r"^(?:/block|/chan|chặn)\s+([a-zA-Z0-9_-]+)$", cleaned_text, re.IGNORECASE)
         if block_match:
             if not is_admin_user:
                 return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
@@ -118,7 +118,7 @@ class CommandHandler:
             return True, msg
 
         # 10. Admin Command: /unblock <user_id> (Bỏ chặn người dùng)
-        unblock_match = re.match(r"^(?:/unblock|/bochan|bỏ chặn[:\s])\s*([a-zA-Z0-9_-]+)$", cleaned_text, re.IGNORECASE)
+        unblock_match = re.match(r"^(?:/unblock|/bochan|bỏ chặn)\s+([a-zA-Z0-9_-]+)$", cleaned_text, re.IGNORECASE)
         if unblock_match:
             if not is_admin_user:
                 return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
