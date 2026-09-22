@@ -217,8 +217,9 @@ class QuotaService:
             record.updated_at = now
 
             name = record.display_name or target_user_id
-            user_msg = ""
-            admin_msg = ""
+            hour_match = re.match(r"^(\d+)\s*(?:h|hour|hours|giờ|gio)$", clean)
+            day_match = re.match(r"^(\d+)\s*(?:d|day|days|ngày|ngay)$", clean)
+            month_match = re.match(r"^(\d+)\s*(?:m|month|months|tháng|thang)$", clean)
 
             # Case 1: Permanent / Unlimited (Vĩnh viễn)
             if clean in ["vinhvien", "vinh vien", "vĩnh viễn", "vĩnh vien", "full", "vohan", "vô hạn", "permanent", "unlimited", "vv", "all", ""]:
@@ -239,11 +240,7 @@ class QuotaService:
                 admin_msg = f"✅ Đã RESET tài khoản {name} (ID: {target_user_id}) về {settings.FREE_MESSAGE_QUOTA} tin nhắn miễn phí mặc định!"
 
             # Case 3: Flexible Hours (e.g. 2h, 5 giờ, 12 gio)
-            hour_match = re.match(r"^(\d+)\s*(?:h|hour|hours|giờ|gio)$", clean)
-            day_match = re.match(r"^(\d+)\s*(?:d|day|days|ngày|ngay)$", clean)
-            month_match = re.match(r"^(\d+)\s*(?:m|month|months|tháng|thang)$", clean)
-
-            if hour_match:
+            elif hour_match:
                 hours = int(hour_match.group(1))
                 record.expire_at = now + timedelta(hours=hours)
                 record.is_approved = True
