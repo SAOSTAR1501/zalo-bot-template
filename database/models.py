@@ -63,8 +63,8 @@ class UserQuota(Base):
     """
     Rate limiting and access control for 1-1 private chats.
     - Free tier: 10 messages
-    - Over quota: warning up to 3 times, then silent drop
-    - Admin whitelist: unlimited
+    - Plans: count (+10, +20..), today (hôm nay), week (tuần này), month (tháng này), permanent (vĩnh viễn)
+    - Blocked users: immediately dropped silently
     """
     __tablename__ = "user_quotas"
 
@@ -74,8 +74,13 @@ class UserQuota(Base):
     message_count = Column(Integer, default=0)
     max_quota = Column(Integer, default=10)
     is_approved = Column(Boolean, default=False)
+    is_blocked = Column(Boolean, default=False)
+    plan_name = Column(String, default="free")  # free | count | today | week | month | permanent
+    expire_at = Column(DateTime, nullable=True)  # Expiration timestamp for duration plans
     spam_warnings_sent = Column(Integer, default=0)
     updated_at = Column(DateTime, default=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
 
 

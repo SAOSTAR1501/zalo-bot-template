@@ -7,8 +7,8 @@ from services.knowledge_service import knowledge_service
 
 class CommandHandler:
     @staticmethod
-    def get_menu_text() -> str:
-        return (
+    def get_menu_text(is_admin: bool = False) -> str:
+        menu = (
             "📋 MENU CHỨC NĂNG CỦA BOT:\n\n"
             "1️⃣ /save <nội dung> : Lưu kiến thức quan trọng vào kho nhóm\n"
             "2️⃣ /knowledge : Xem kho kiến thức đã lưu trữ\n"
@@ -17,23 +17,35 @@ class CommandHandler:
             "5️⃣ /help : Xem lại menu hướng dẫn này\n\n"
             "👉 Mẹo: Bạn có thể gõ nhanh phím số 2, 3, 4 hoặc đặt câu hỏi bất kỳ để bot giải đáp!"
         )
+        if is_admin:
+            menu += (
+                "\n\n👑 QUẢN TRỊ VIÊN (ADMIN ONLY):\n"
+                "• /accept <user_id> [gói] : Cấp quyền theo gói\n"
+                "  (Gói: 10, 20, 50, homnay, tuannay, thangnay, vinhvien)\n"
+                "• /block <user_id> : Khóa / Chặn người dùng vĩnh viễn\n"
+                "• /unblock <user_id> : Mở khóa cho người dùng\n"
+                "• /users : Xem danh sách người dùng & hạn mức"
+            )
+        return menu
 
     def handle_command(self, cleaned_text: str, chat_id: str, user_id: str, sender_name: str) -> Tuple[bool, Optional[str]]:
         """
         Returns (is_command, reply_text).
         If is_command is False, message should be dispatched to LLM.
         """
+        from services.quota_service import quota_service
+        is_admin_user = quota_service.is_admin(user_id)
         text_lower = cleaned_text.lower().strip()
 
         # 1. Start / Hello
         if text_lower in ["/start", "/hello", "hello", "hi", "xin chào", "chào"]:
             name_str = f" {sender_name}" if sender_name else ""
-            reply = f"Xin chào{name_str}! Mình là Bot Sao Assistant.\n\n" + self.get_menu_text()
+            reply = f"Xin chào{name_str}! Mình là Bot Sao Assistant.\n\n" + self.get_menu_text(is_admin=is_admin_user)
             return True, reply
 
         # 2. Menu / Help / Phím 5
         if text_lower in ["/menu", "menu", "/help", "help", "hướng dẫn", "5"]:
-            return True, self.get_menu_text()
+            return True, self.get_menu_text(is_admin=is_admin_user)
 
         # 3. Phím 1 (Hướng dẫn lưu)
         if text_lower == "1":
@@ -53,8 +65,7 @@ class CommandHandler:
 
         # 6. Clear Memory: /clear, phím 4
         if text_lower in ["/clear", "/reset", "xóa bộ nhớ", "quên đi", "4"]:
-            # Check Admin permission if configured
-            if settings.admin_ids and user_id not in settings.admin_ids:
+            if not is_admin_user and settings.admin_ids:
                 return True, "⚠️ Bạn không có quyền quản trị để xóa bộ nhớ của nhóm."
             context_service.clear_context(chat_id)
             return True, "🧹 Đã xóa lịch sử trò chuyện gần đây của nhóm! Kho kiến thức đã lưu (/knowledge) vẫn được giữ nguyên an toàn."
@@ -66,8 +77,7 @@ class CommandHandler:
             if not content_to_save:
                 return True, "Bạn hãy nhập nội dung cần lưu sau lệnh /save nhé (ví dụ: /save Dự án A bắt đầu từ thứ 2)."
             
-            # Check Admin permission if configured
-            if settings.admin_ids and user_id not in settings.admin_ids:
+            if settings.admin_ids and not is_admin_user:
                 return True, "⚠️ Bạn không có quyền quản trị để lưu kiến thức vào kho nhóm."
 
             knowledge_service.save(
@@ -88,45 +98,44 @@ class CommandHandler:
 
             return True, f"✅ Đã lưu lại kiến thức vào kho của nhóm:\n• {content_to_save}"
 
-        # 8. Admin Command: /accept <user_id> [số_tin] hoặc /duyet <user_id> [số_tin]
-        accept_match = re.match(r"^(?:/accept|/duyet|duyệt[:\s])\s*([a-zA-Z0-9_-]+)(?:\s+(\d+|full))?$", cleaned_text, re.IGNORECASE)
+        # 8. Admin Command: /accept <user_id> [gói] hoặc /duyet <user_id> [gói]
+        accept_match = re.match(r"^(?:/accept|/duyet|duyệt[:\s])\s*([a-zA-Z0-9_-]+)(?:\s+([\w\d]+))?$", cleaned_text, re.IGNORECASE)
         if accept_match:
-            from services.quota_service import quota_service
-            if not quota_service.is_admin(user_id):
+            if not is_admin_user:
                 return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
             target_uid = accept_match.group(1).strip()
-            amount_str = accept_match.group(2)
-
-            if amount_str and amount_str.isdigit():
-                # Grant specific message quota count
-                ok, msg = quota_service.add_quota_to_user(target_uid, int(amount_str))
-            else:
-                # Grant full unlimited access
-                ok, msg = quota_service.approve_user(target_uid)
+            plan_str = accept_match.group(2) or "vinhvien"
+            ok, msg = quota_service.apply_plan(target_uid, plan_str)
             return True, msg
 
-        # 9. Admin Command: /addquota <user_id> <số_tin> hoặc /quota <user_id> <số_tin> hoặc /cong <user_id> <số_tin>
-        addquota_match = re.match(r"^(?:/addquota|/quota|/cong|cộng[:\s])\s*([a-zA-Z0-9_-]+)\s+(\d+)$", cleaned_text, re.IGNORECASE)
-        if addquota_match:
-            from services.quota_service import quota_service
-            if not quota_service.is_admin(user_id):
+        # 9. Admin Command: /block <user_id> (Chặn người dùng)
+        block_match = re.match(r"^(?:/block|/chan|chặn[:\s])\s*([a-zA-Z0-9_-]+)$", cleaned_text, re.IGNORECASE)
+        if block_match:
+            if not is_admin_user:
                 return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
-            target_uid = addquota_match.group(1).strip()
-            num = int(addquota_match.group(2).strip())
-            ok, msg = quota_service.add_quota_to_user(target_uid, num)
+            target_uid = block_match.group(1).strip()
+            ok, msg = quota_service.block_user(target_uid)
             return True, msg
 
-        # 10. Admin Command: /users (Danh sách người dùng và hạn mức)
+        # 10. Admin Command: /unblock <user_id> (Bỏ chặn người dùng)
+        unblock_match = re.match(r"^(?:/unblock|/bochan|bỏ chặn[:\s])\s*([a-zA-Z0-9_-]+)$", cleaned_text, re.IGNORECASE)
+        if unblock_match:
+            if not is_admin_user:
+                return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
+            target_uid = unblock_match.group(1).strip()
+            ok, msg = quota_service.unblock_user(target_uid)
+            return True, msg
+
+        # 11. Admin Command: /users (Danh sách người dùng và hạn mức)
         if text_lower in ["/users", "/danhsach", "danh sách người dùng", "xem hạn mức"]:
-            from services.quota_service import quota_service
-            if not quota_service.is_admin(user_id):
+            if not is_admin_user:
                 return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
             return True, quota_service.list_users()
 
         return False, None
 
 
-
 command_handler = CommandHandler()
+
 
 
