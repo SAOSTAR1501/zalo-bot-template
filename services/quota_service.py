@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Tuple, Optional, List, Dict
 from config.settings import settings
@@ -237,34 +238,50 @@ class QuotaService:
                 user_msg = f"🎉 Tài khoản của bạn đã được Admin cài đặt lại gói {settings.FREE_MESSAGE_QUOTA} tin nhắn miễn phí. Bạn có thể tiếp tục trò chuyện nhé. 😊"
                 admin_msg = f"✅ Đã RESET tài khoản {name} (ID: {target_user_id}) về {settings.FREE_MESSAGE_QUOTA} tin nhắn miễn phí mặc định!"
 
-            # Case 3: Today (Mở hôm nay - 24 giờ)
-            elif clean in ["homnay", "hom nay", "hôm nay", "today", "ngay", "ngày", "1ngay", "1 ngày", "24h"]:
-                record.expire_at = now + timedelta(hours=24)
-                record.is_approved = True
-                record.plan_name = "today"
-                record.message_count = 0
-                user_msg = "🎉 Bạn đã được Admin Sao đẹp trai mở quyền sử dụng KHÔNG GIỚI HẠN trong 24 giờ hôm nay! Hãy thoải mái trò chuyện cùng bot nhé. 😊"
-                admin_msg = f"✅ Đã chuyển sang gói HÔM NAY (24h) cho {name} (ID: {target_user_id}) thành công!"
+            # Case 3: Flexible Hours (e.g. 2h, 5 giờ, 12 gio)
+            hour_match = re.match(r"^(\d+)\s*(?:h|hour|hours|giờ|gio)$", clean)
+            day_match = re.match(r"^(\d+)\s*(?:d|day|days|ngày|ngay)$", clean)
+            month_match = re.match(r"^(\d+)\s*(?:m|month|months|tháng|thang)$", clean)
 
-            # Case 4: Week (Mở tuần này - 7 ngày)
-            elif clean in ["tuannay", "tuan nay", "tuần này", "tuần", "tuan", "week", "7ngay", "7 ngày", "7d"]:
-                record.expire_at = now + timedelta(days=7)
+            if hour_match:
+                hours = int(hour_match.group(1))
+                record.expire_at = now + timedelta(hours=hours)
                 record.is_approved = True
-                record.plan_name = "week"
+                record.plan_name = f"{hours}h"
                 record.message_count = 0
-                user_msg = "🎉 Bạn đã được Admin Sao đẹp trai mở quyền sử dụng KHÔNG GIỚI HẠN trong 7 NGÀY! Hãy thoải mái trò chuyện cùng bot nhé. 😊"
-                admin_msg = f"✅ Đã chuyển sang gói 7 NGÀY cho {name} (ID: {target_user_id}) thành công!"
+                user_msg = f"🎉 Bạn đã được Admin Sao đẹp trai mở quyền sử dụng KHÔNG GIỚI HẠN trong {hours} GIỜ! Hãy thoải mái trò chuyện cùng bot nhé. 😊"
+                admin_msg = f"✅ Đã chuyển sang gói {hours} GIỜ cho {name} (ID: {target_user_id}) thành công!"
 
-            # Case 5: Month (Mở tháng này - 30 ngày)
-            elif clean in ["thangnay", "thang nay", "tháng này", "tháng", "thang", "month", "30ngay", "30 ngày", "30d", "1thang", "1 tháng"]:
-                record.expire_at = now + timedelta(days=30)
+            # Case 4: Flexible Days (e.g. 1 ngày, 3ngay, 7d, 15 ngày, homnay, tuannay)
+            elif day_match or clean in ["homnay", "hom nay", "hôm nay", "today", "ngay", "ngày", "1ngay", "1 ngày", "24h", "tuannay", "tuan nay", "tuần này", "tuần", "tuan", "week", "7ngay", "7 ngày", "7d"]:
+                if day_match:
+                    days = int(day_match.group(1))
+                elif clean in ["tuannay", "tuan nay", "tuần này", "tuần", "tuan", "week", "7ngay", "7 ngày", "7d"]:
+                    days = 7
+                else:
+                    days = 1
+
+                record.expire_at = now + timedelta(days=days)
                 record.is_approved = True
-                record.plan_name = "month"
+                record.plan_name = f"{days} ngày" if days > 1 else "hôm nay"
                 record.message_count = 0
-                user_msg = "🎉 Bạn đã được Admin Sao đẹp trai mở quyền sử dụng KHÔNG GIỚI HẠN trong 30 NGÀY! Hãy thoải mái trò chuyện cùng bot nhé. 😊"
-                admin_msg = f"✅ Đã chuyển sang gói 30 NGÀY cho {name} (ID: {target_user_id}) thành công!"
+                label = f"{days} NGÀY" if days > 1 else "HÔM NAY (24h)"
+                user_msg = f"🎉 Bạn đã được Admin Sao đẹp trai mở quyền sử dụng KHÔNG GIỚI HẠN trong {label}! Hãy thoải mái trò chuyện cùng bot nhé. 😊"
+                admin_msg = f"✅ Đã chuyển sang gói {label} cho {name} (ID: {target_user_id}) thành công!"
 
-            # Case 6: Numeric count (+10, +20, +50, +100...)
+            # Case 5: Flexible Months (e.g. 1 tháng, 2thang, 30d, thangnay)
+            elif month_match or clean in ["thangnay", "thang nay", "tháng này", "tháng", "thang", "month", "30ngay", "30 ngày", "30d", "1thang", "1 tháng"]:
+                months = int(month_match.group(1)) if month_match else 1
+                days = months * 30
+                record.expire_at = now + timedelta(days=days)
+                record.is_approved = True
+                record.plan_name = f"{months} tháng" if months > 1 else "tháng này"
+                record.message_count = 0
+                label = f"{months} THÁNG ({days} ngày)" if months > 1 else "30 NGÀY"
+                user_msg = f"🎉 Bạn đã được Admin Sao đẹp trai mở quyền sử dụng KHÔNG GIỚI HẠN trong {label}! Hãy thoải mái trò chuyện cùng bot nhé. 😊"
+                admin_msg = f"✅ Đã chuyển sang gói {label} cho {name} (ID: {target_user_id}) thành công!"
+
+            # Case 6: Numeric count (+10, 15, 20, 50, 100, 500...)
             elif clean.isdigit() and int(clean) > 0:
                 add_count = int(clean)
                 record.expire_at = None
@@ -278,13 +295,13 @@ class QuotaService:
             else:
                 return False, (
                     f"⚠️ Gói '{plan_input}' không hợp lệ.\n"
-                    f"👉 Các gói hỗ trợ:\n"
-                    f"• 10, 20, 50, 100 (Cấp số lượng tin)\n"
-                    f"• homnay (Mở 24h)\n"
-                    f"• tuannay (Mở 7 ngày)\n"
-                    f"• thangnay (Mở 30 ngày)\n"
-                    f"• vinhvien (Mở vĩnh viễn)\n"
-                    f"• reset (Về 10 tin mặc định)"
+                    f"👉 Admin có thể đặt bất kỳ gói linh hoạt nào:\n"
+                    f"• Số lượng tin tùy ý: /accept {target_user_id} 10 (hoặc 15, 20, 50, 100...)\n"
+                    f"• Số ngày tùy ý: /accept {target_user_id} 3 ngày (hoặc homnay, tuannay, 15 ngày...)\n"
+                    f"• Số giờ tùy ý: /accept {target_user_id} 5 giờ (hoặc 2h, 12h...)\n"
+                    f"• Số tháng tùy ý: /accept {target_user_id} 2 tháng (hoặc thangnay...)\n"
+                    f"• Vĩnh viễn: /accept {target_user_id} vinhvien\n"
+                    f"• Reset về mặc định: /accept {target_user_id} reset"
                 )
 
             db.commit()
