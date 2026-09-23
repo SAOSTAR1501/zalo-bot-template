@@ -35,9 +35,12 @@ async def startup_event():
     def _warmup():
         try:
             from services.semantic_memory_service import get_embedding_model
+            from services.sticker_service import sticker_service
             get_embedding_model()
             zalo_client.get_me()
-            logger.info("Startup warmup complete: FastEmbed and Zalo Client ready.")
+            # Pre-load and persist sticker catalog so it is available offline.
+            sticker_service.list_catalog()
+            logger.info("Startup warmup complete: FastEmbed, Zalo Client and Sticker catalog ready.")
         except Exception as e:
             logger.warning(f"Startup warmup note: {e}")
     threading.Thread(target=_warmup, daemon=True).start()
