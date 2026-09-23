@@ -16,7 +16,9 @@ class CommandHandler:
             "3️⃣ /summary : Tóm tắt nội dung thảo luận 12 giờ qua\n"
             "4️⃣ /clear : Xóa lịch sử trò chuyện ngắn hạn gần đây\n"
             "5️⃣ /help : Xem lại menu hướng dẫn này\n"
-            "6️⃣ /sticker : Xem kho sticker hoặc gửi thử /sticker <tên>\n\n"
+            "6️⃣ /sticker : Xem kho sticker hoặc gửi thử /sticker <tên>\n"
+            "   • Sticker phải do Admin khai báo id trong data/sticker_catalog.json\n"
+            "   • Lấy id từ https://stickers.zaloapp.com/oa/detail?cid=<ID>\n\n"
             "👉 Trong nhóm chat, hãy @mention bot hoặc trả lời (quote) tin nhắn của bot để bot tự động tham gia.\n"
             "👉 Trong chat riêng, bạn chỉ cần gửi tin nhắn bất kỳ là bot sẽ trả lời.\n"
             "👉 Bot có thể tự động gửi sticker phù hợp với nội dung câu trả lời."
@@ -60,11 +62,6 @@ class CommandHandler:
         sticker_match = re.match(r"^(?:/sticker|sticker)\s*(.*)$", cleaned_text, re.IGNORECASE)
         if sticker_match:
             requested_tag = sticker_match.group(1).strip().lower()
-            if requested_tag == "refresh":
-                if not is_admin_user:
-                    return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
-                ok, msg = sticker_service.refresh_catalog()
-                return True, msg
             if requested_tag and requested_tag not in ["danh sách", "list", "kho", "menu"]:
                 item = sticker_service.get_sticker(requested_tag)
                 if item:
