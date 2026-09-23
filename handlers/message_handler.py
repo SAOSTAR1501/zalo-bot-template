@@ -12,6 +12,7 @@ from services.quota_service import quota_service
 from services.aggregator_service import aggregator_service
 from services.image_service import image_service
 from services.sticker_service import sticker_service
+from services.agy_image_service import agy_image_service
 from services.formatter import (
     clean_mention,
     clean_markdown_for_zalo,
@@ -314,11 +315,18 @@ class MessageHandler:
         cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
         reply_text = clean_markdown_for_zalo(cleaned_ai_reply)
 
-        # 7. Detect optional [STICKER_RANDOM] marker from LLM
+        # 7. Detect optional markers from LLM / command handler
         send_random_sticker = False
+        agy_image_description = None
+
         if settings.STICKER_AUTO_SEND and "[STICKER_RANDOM]" in reply_text:
             reply_text = reply_text.replace("[STICKER_RANDOM]", "").strip()
             send_random_sticker = True
+
+        image_match = re.search(r"\[IMAGE_AGY:([^\]]+)\]", reply_text)
+        if image_match:
+            agy_image_description = image_match.group(1).strip()
+            reply_text = reply_text.replace(image_match.group(0), "").strip()
 
         # 8. Append transient quota badge if applicable
         final_send_text = f"{reply_text}{quota_badge}" if quota_badge else reply_text
@@ -332,13 +340,27 @@ class MessageHandler:
             parse_mode="markdown"
         )
 
-        # 9b. If the LLM requested a random sticker and auto-send is enabled, send it.
+        # 9b. Send optional random sticker after text
         if send_random_sticker:
             sticker_item = sticker_service.get_random_sticker()
             if sticker_item:
                 sticker_id, preview_url = sticker_item
                 logger.info(f"Sending random sticker after reply: {sticker_id}")
                 zalo_client.send_sticker(str(chat_id), sticker_id)
+
+        # 9c. Generate and send image requested via /image command
+        if agy_image_description:
+            logger.info(f"Generating agy image: {agy_image_description}")
+            zalo_client.send_chat_action(str(chat_id), "upload_photo")
+            success, image_path = agy_image_service.generate_image(agy_image_description)
+            if success:
+                zalo_client.send_photo(str(chat_id), image_path, caption=agy_image_description)
+            else:
+                zalo_client.send_message(
+                    chat_id=str(chat_id),
+                    text=f"❌ Không tạo được ảnh: {image_path}",
+                    parse_mode="markdown"
+                )
 
         # 10. Save turn to conversation database
         saved_msg = f"{sender_name}: [Hình ảnh] {combined_cleaned_text}" if image_data else (f"{sender_name}: {combined_cleaned_text}" if sender_name else combined_cleaned_text)

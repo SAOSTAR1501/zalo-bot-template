@@ -1,4 +1,5 @@
 import logging
+import os
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -148,18 +149,25 @@ class ZaloBotClient:
         caption: Optional[str] = None,
         parse_mode: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Send photo by URL with optional caption."""
+        """Send photo by URL or local file path with optional caption."""
         url = self._url("sendPhoto")
         payload: Dict[str, Any] = {
             "chat_id": str(chat_id),
-            "photo": photo_url
         }
         if caption:
             payload["caption"] = caption[:2000]
         if parse_mode:
             payload["parse_mode"] = parse_mode
+
         try:
-            r = self.session.post(url, json=payload, timeout=(10, 25))
+            # Local file path: upload via multipart/form-data
+            if os.path.isfile(photo_url):
+                with open(photo_url, "rb") as f:
+                    files = {"photo": f}
+                    r = self.session.post(url, data=payload, files=files, timeout=(15, 60))
+            else:
+                payload["photo"] = photo_url
+                r = self.session.post(url, json=payload, timeout=(10, 25))
             return r.json()
         except Exception as e:
             logger.error(f"Failed to sendPhoto: {e}")

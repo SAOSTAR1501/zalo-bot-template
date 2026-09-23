@@ -4,6 +4,7 @@ from config.settings import settings
 from services.context_service import context_service
 from services.knowledge_service import knowledge_service
 from services.sticker_service import sticker_service
+from services.agy_image_service import agy_image_service
 
 
 class CommandHandler:
@@ -19,8 +20,10 @@ class CommandHandler:
         "6️⃣ /sticker : Xem nhanh kho sticker (30 bộ phổ biến)\n"
         "   /sticker list : Xem toàn bộ danh sách bộ sticker\n"
         "   /sticker <tên bộ> : Gửi ngẫu nhiên 1 sticker từ bộ đó\n"
-        "   • Ví dụ: /sticker Bư Mặt Ngáo\n"
-        "   • Dữ liệu lấy từ https://stickers.zaloapp.com/\n\n"
+        "   • Ví dụ: /sticker Bư Mặt Ngáo\n\n"
+        "7️⃣ /image <mô tả> : Tạo ảnh bằng Antigravity CLI (agy)\n"
+        "   • Ví dụ: /image một con mèo dễ thương đang ngủ trên gối\n"
+        "   • Yêu cầu server đã cài đặt và xác thực `agy`\n\n"
             "👉 Trong nhóm chat, hãy @mention bot hoặc trả lời (quote) tin nhắn của bot để bot tự động tham gia.\n"
             "👉 Trong chat riêng, bạn chỉ cần gửi tin nhắn bất kỳ là bot sẽ trả lời.\n"
             "👉 Bot có thể tự động gửi sticker phù hợp với nội dung câu trả lời."
@@ -87,9 +90,13 @@ class CommandHandler:
                 return True, f"[STICKER:{sticker_id}|{preview_url}]"
             return True, f"❓ Bot chưa có bộ sticker '{requested}'.\n{sticker_service.list_catalog(full=False)}"
 
-        # 3. Phím 1 (Hướng dẫn lưu)
-        if text_lower == "1":
-            return True, "Để lưu kiến thức, bạn gõ cú pháp: /save <nội dung cần lưu>\nVí dụ: /save Quy định họp lúc 9h sáng thứ 2."
+        # 3. Generate image via Antigravity CLI (agy)
+        image_match = re.match(r"^(?:/image|/vẽ|image|vẽ)\s+(.+)$", cleaned_text, re.IGNORECASE)
+        if image_match:
+            description = image_match.group(1).strip()
+            if not agy_image_service.is_available():
+                return True, "❌ Tính năng tạo ảnh chưa sẵn sàng. Vui lòng cài đặt và xác thực `agy` trên server."
+            return True, f"[IMAGE_AGY:{description}]"
 
         # 4. View Knowledge: /knowledge, phím 2
         if text_lower in ["/knowledge", "xem kiến thức", "kho kiến thức", "kiến thức đã lưu", "2"]:
