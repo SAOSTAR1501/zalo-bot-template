@@ -60,6 +60,11 @@ class CommandHandler:
         sticker_match = re.match(r"^(?:/sticker|sticker)\s*(.*)$", cleaned_text, re.IGNORECASE)
         if sticker_match:
             requested_tag = sticker_match.group(1).strip().lower()
+            if requested_tag == "refresh":
+                if not is_admin_user:
+                    return True, "⚠️ Lệnh này chỉ dành riêng cho Admin Sao đẹp trai."
+                ok, msg = sticker_service.refresh_catalog()
+                return True, msg
             if requested_tag and requested_tag not in ["danh sách", "list", "kho", "menu"]:
                 item = sticker_service.get_sticker(requested_tag)
                 if item:
