@@ -136,10 +136,14 @@ class MessageHandler:
                 if sticker_marker:
                     sticker_id = sticker_marker.group(1)
                     preview_url = sticker_marker.group(2)
-                    # sendSticker expects a sticker reference (pack id) from stickers.zaloapp.com.
-                    sticker_result = zalo_client.send_sticker(str(chat_id), sticker_id)
+                    # sendSticker may accept either a sticker asset URL or a pack id.
+                    # Try the preview image URL first, then the pack id, then fallback to sendPhoto.
+                    sticker_result = zalo_client.send_sticker(str(chat_id), preview_url)
                     if not sticker_result.get("ok"):
-                        logger.warning(f"sendSticker command failed ({sticker_result}), falling back to sendPhoto")
+                        logger.warning(f"sendSticker URL failed ({sticker_result}), trying pack id")
+                        sticker_result = zalo_client.send_sticker(str(chat_id), sticker_id)
+                    if not sticker_result.get("ok"):
+                        logger.warning(f"sendSticker pack id failed ({sticker_result}), falling back to sendPhoto")
                         zalo_client.send_photo(str(chat_id), preview_url, caption="")
                 else:
                     zalo_client.send_message(
@@ -294,7 +298,9 @@ class MessageHandler:
             if sticker_item:
                 sticker_id, preview_url = sticker_item
                 logger.info(f"Sending matching sticker for reply: {sticker_id}")
-                sticker_result = zalo_client.send_sticker(str(chat_id), sticker_id)
+                sticker_result = zalo_client.send_sticker(str(chat_id), preview_url)
+                if not sticker_result.get("ok"):
+                    sticker_result = zalo_client.send_sticker(str(chat_id), sticker_id)
                 if not sticker_result.get("ok"):
                     logger.warning(f"auto sendSticker failed ({sticker_result}), falling back to sendPhoto")
                     zalo_client.send_photo(str(chat_id), preview_url, caption="")
