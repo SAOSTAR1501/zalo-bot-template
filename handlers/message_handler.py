@@ -131,20 +131,17 @@ class MessageHandler:
         if is_cmd:
             logger.info(f"Executing command directly for {sender_name} ({user_id}): {cleaned_text[:50]}")
             if cmd_reply:
-                # Handle sticker command marker: [STICKER:<url>]
-                sticker_marker = re.match(r"^\[STICKER:([^|]+)\|([^\]]+)\]$", cmd_reply.strip())
+                # Handle sticker command marker: [STICKER:<id>|<preview_url>]
+                sticker_marker = re.match(r"^\[STICKER:([^|]+)\|([^\]]*)\]$", cmd_reply.strip())
                 if sticker_marker:
                     sticker_id = sticker_marker.group(1)
                     preview_url = sticker_marker.group(2)
-                    # sendSticker may accept either a sticker asset URL or a pack id.
-                    # Try the preview image URL first, then the pack id, then fallback to sendPhoto.
-                    sticker_result = zalo_client.send_sticker(str(chat_id), preview_url)
+                    # sendSticker expects "sticker": "<pack_id>" exactly like the JS example.
+                    sticker_result = zalo_client.send_sticker(str(chat_id), sticker_id)
                     if not sticker_result.get("ok"):
-                        logger.warning(f"sendSticker URL failed ({sticker_result}), trying pack id")
-                        sticker_result = zalo_client.send_sticker(str(chat_id), sticker_id)
-                    if not sticker_result.get("ok"):
-                        logger.warning(f"sendSticker pack id failed ({sticker_result}), falling back to sendPhoto")
-                        zalo_client.send_photo(str(chat_id), preview_url, caption="")
+                        logger.warning(f"sendSticker failed ({sticker_result}), falling back to sendPhoto")
+                        if preview_url:
+                            zalo_client.send_photo(str(chat_id), preview_url, caption="")
                 else:
                     zalo_client.send_message(
                         chat_id=str(chat_id),
@@ -298,12 +295,12 @@ class MessageHandler:
             if sticker_item:
                 sticker_id, preview_url = sticker_item
                 logger.info(f"Sending matching sticker for reply: {sticker_id}")
-                sticker_result = zalo_client.send_sticker(str(chat_id), preview_url)
-                if not sticker_result.get("ok"):
-                    sticker_result = zalo_client.send_sticker(str(chat_id), sticker_id)
+                # sendSticker expects "sticker": "<pack_id>" exactly like the JS example.
+                sticker_result = zalo_client.send_sticker(str(chat_id), sticker_id)
                 if not sticker_result.get("ok"):
                     logger.warning(f"auto sendSticker failed ({sticker_result}), falling back to sendPhoto")
-                    zalo_client.send_photo(str(chat_id), preview_url, caption="")
+                    if preview_url:
+                        zalo_client.send_photo(str(chat_id), preview_url, caption="")
 
         # 9. Save turn to conversation database
         saved_msg = f"{sender_name}: [Hình ảnh] {combined_cleaned_text}" if image_data else (f"{sender_name}: {combined_cleaned_text}" if sender_name else combined_cleaned_text)
