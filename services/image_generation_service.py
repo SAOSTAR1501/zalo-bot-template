@@ -91,12 +91,10 @@ class ImageGenerationService:
     ) -> Tuple[bool, str]:
         """Free primary: Pollinations.ai returns a public image URL.
 
-        We do not verify the URL with a HEAD request because Pollinations.ai
-        sometimes rejects HEAD (returns 500) or takes too long to render.  The
-        generated URL is public and Zalo's sendPhoto will fetch it directly.
-
-        Pollinations.ai works best with English prompts, so we translate the
-        description before building the URL.
+        Pollinations.ai generates images lazily: the first request to a new
+        URL triggers rendering and may take a few seconds.  We warm up the URL
+        by downloading a few bytes so that by the time Zalo fetches it the
+        image is already cached and available.
         """
         logger.info(f"Generating image URL with Pollinations.ai for: {description[:80]}...")
         try:
@@ -107,8 +105,16 @@ class ImageGenerationService:
                 f"&seed={uuid.uuid4().int % 1000000}"
             )
 
-            logger.info(f"Pollinations.ai image URL ready: {url[:120]}...")
-            return True, url
+            # Warm up the image so Zalo's sendPhoto sees a ready CDN URL.
+            logger.info("Warming up Pollinations.ai image...")
+            warmup = requests.get(url, timeout=(10, 45), stream=True)
+            if warmup.status_code == 200:
+                # Read only enough bytes to ensure rendering has started.
+                _ = warmup.raw.read(1024)
+                warmup.close()
+                logger.info(f"Pollinations.ai image URL ready: {url[:120]}...")
+                return True, url
+            return False, f"warmup {warmup.status_code}"
 
         except Exception as e:
             logger.exception("Pollinations.ai failed")
