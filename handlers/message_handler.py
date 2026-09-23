@@ -203,14 +203,13 @@ class MessageHandler:
                             logger.info(f"Calling send_photo for chat {chat_id} with source {image_source[:120]}")
                             photo_result = zalo_client.send_photo(str(chat_id), image_source, caption=gen_description)
                             logger.info(f"send_photo result: {photo_result}")
-                            # Pollinations.ai can take a few seconds to render the first time.
-                            # If Zalo reports the URL invalid, wait briefly and retry once.
-                            if not photo_result.get("ok") and photo_result.get("error_code") == 424:
-                                logger.info("Retrying send_photo after 4s because Zalo reported URL invalid")
-                                import time
-                                time.sleep(4)
-                                photo_result = zalo_client.send_photo(str(chat_id), image_source, caption=gen_description)
-                                logger.info(f"send_photo retry result: {photo_result}")
+                            if not photo_result.get("ok"):
+                                error_detail = photo_result.get("description", "unknown error")
+                                zalo_client.send_message(
+                                    chat_id=str(chat_id),
+                                    text=f"❌ Không gửi được ảnh: {error_detail}",
+                                    parse_mode="markdown"
+                                )
                         else:
                             zalo_client.send_message(
                                 chat_id=str(chat_id),
@@ -430,6 +429,13 @@ class MessageHandler:
                     logger.info(f"Calling send_photo for chat {chat_id} with source {image_source[:120]}")
                     photo_result = zalo_client.send_photo(str(chat_id), image_source, caption=gen_image_description)
                     logger.info(f"send_photo result: {photo_result}")
+                    if not photo_result.get("ok"):
+                        error_detail = photo_result.get("description", "unknown error")
+                        zalo_client.send_message(
+                            chat_id=str(chat_id),
+                            text=f"❌ Không gửi được ảnh: {error_detail}",
+                            parse_mode="markdown"
+                        )
                 else:
                     zalo_client.send_message(
                         chat_id=str(chat_id),
