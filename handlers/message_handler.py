@@ -168,6 +168,11 @@ class MessageHandler:
                 if image_marker:
                     agy_description = image_marker.group(1).strip()
                     logger.info(f"Generating agy image from command: {agy_description}")
+                    zalo_client.send_message(
+                        chat_id=str(chat_id),
+                        text="🎨 Đang tạo ảnh, vui lòng đợi một chút nhé...",
+                        parse_mode="markdown"
+                    )
                     zalo_client.send_chat_action(str(chat_id), "typing")
                     success, image_path = agy_image_service.generate_image(agy_description)
                     if success:
@@ -372,6 +377,11 @@ class MessageHandler:
         # 9c. Generate and send image requested via /image command
         if agy_image_description:
             logger.info(f"Generating agy image: {agy_image_description}")
+            zalo_client.send_message(
+                chat_id=str(chat_id),
+                text="🎨 Đang tạo ảnh, vui lòng đợi một chút nhé...",
+                parse_mode="markdown"
+            )
             zalo_client.send_chat_action(str(chat_id), "typing")
             success, image_path = agy_image_service.generate_image(agy_image_description)
             if success:
