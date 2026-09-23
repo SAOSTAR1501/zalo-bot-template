@@ -161,12 +161,30 @@ class MessageHandler:
                         logger.warning(f"sendSticker failed ({sticker_result}), falling back to sendPhoto")
                         if preview_url:
                             zalo_client.send_photo(str(chat_id), preview_url, caption="")
-                else:
-                    zalo_client.send_message(
-                        chat_id=str(chat_id),
-                        text=clean_markdown_for_zalo(cmd_reply),
-                        parse_mode="markdown"
-                    )
+                    return {"status": "command_processed", "chat_id": chat_id}
+
+                # Handle image generation command marker: [IMAGE_AGY:<description>]
+                image_marker = re.search(r"\[IMAGE_AGY:([^\]]+)\]", cmd_reply.strip())
+                if image_marker:
+                    agy_description = image_marker.group(1).strip()
+                    logger.info(f"Generating agy image from command: {agy_description}")
+                    zalo_client.send_chat_action(str(chat_id), "upload_photo")
+                    success, image_path = agy_image_service.generate_image(agy_description)
+                    if success:
+                        zalo_client.send_photo(str(chat_id), image_path, caption=agy_description)
+                    else:
+                        zalo_client.send_message(
+                            chat_id=str(chat_id),
+                            text=f"❌ Không tạo được ảnh: {image_path}",
+                            parse_mode="markdown"
+                        )
+                    return {"status": "command_processed", "chat_id": chat_id}
+
+                zalo_client.send_message(
+                    chat_id=str(chat_id),
+                    text=clean_markdown_for_zalo(cmd_reply),
+                    parse_mode="markdown"
+                )
             return {"status": "command_processed", "chat_id": chat_id}
 
         # 2. Queue conversational messages into Debounce Aggregator
