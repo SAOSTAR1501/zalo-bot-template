@@ -64,9 +64,10 @@ class StickerService:
         chosen = random.choice(items)
         return chosen["id"], chosen.get("preview_url", "")
 
-    def list_catalog(self) -> str:
+    def list_catalog(self, full: bool = False) -> str:
         catalog = self._get_catalog()
         total = sum(len(v) for v in catalog.values())
+        pack_names = sorted(catalog.keys())
 
         lines = [
             "🎨 KHO STICKER CỦA BOT:",
@@ -79,8 +80,19 @@ class StickerService:
             "",
             "📦 Danh sách bộ sticker:",
         ]
-        for pack_name in sorted(catalog.keys()):
-            lines.append(f"• {pack_name}: {len(catalog[pack_name])} sticker")
+
+        if full:
+            for pack_name in pack_names:
+                lines.append(f"• {pack_name}: {len(catalog[pack_name])} sticker")
+        else:
+            preview_count = min(30, len(pack_names))
+            for pack_name in pack_names[:preview_count]:
+                lines.append(f"• {pack_name}: {len(catalog[pack_name])} sticker")
+            remaining = len(pack_names) - preview_count
+            if remaining > 0:
+                lines.append(f"\n...và thêm {remaining} bộ khác.")
+                lines.append("Gõ /sticker list để xem toàn bộ.")
+
         return "\n".join(lines)
 
     # ------------------------------------------------------------------

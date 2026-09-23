@@ -16,9 +16,11 @@ class CommandHandler:
             "3️⃣ /summary : Tóm tắt nội dung thảo luận 12 giờ qua\n"
             "4️⃣ /clear : Xóa lịch sử trò chuyện ngắn hạn gần đây\n"
             "5️⃣ /help : Xem lại menu hướng dẫn này\n"
-            "6️⃣ /sticker : Xem kho sticker hoặc gửi thử /sticker <tên>\n"
-            "   • Sticker phải do Admin khai báo id trong data/sticker_catalog.json\n"
-            "   • Lấy id từ https://stickers.zaloapp.com/oa/detail?cid=<ID>\n\n"
+        "6️⃣ /sticker : Xem nhanh kho sticker (30 bộ phổ biến)\n"
+        "   /sticker list : Xem toàn bộ danh sách bộ sticker\n"
+        "   /sticker <tên bộ> : Gửi ngẫu nhiên 1 sticker từ bộ đó\n"
+        "   • Ví dụ: /sticker Bư Mặt Ngáo\n"
+        "   • Dữ liệu lấy từ https://stickers.zaloapp.com/\n\n"
             "👉 Trong nhóm chat, hãy @mention bot hoặc trả lời (quote) tin nhắn của bot để bot tự động tham gia.\n"
             "👉 Trong chat riêng, bạn chỉ cần gửi tin nhắn bất kỳ là bot sẽ trả lời.\n"
             "👉 Bot có thể tự động gửi sticker phù hợp với nội dung câu trả lời."
@@ -58,23 +60,24 @@ class CommandHandler:
         if text_lower in ["/menu", "menu", "/help", "help", "hướng dẫn", "5"]:
             return True, self.get_menu_text(is_admin=is_admin_user)
 
-        # 2b. Sticker catalog / manual sticker command
+        # 2b. Plain /sticker without argument: show short preview of the catalog
+        if text_lower == "/sticker" or text_lower == "sticker":
+            return True, sticker_service.list_catalog(full=False)
+
+        # 2c. /sticker list/all: show full catalog
+        if text_lower in ["/sticker list", "/sticker all", "sticker list", "sticker all"]:
+            return True, sticker_service.list_catalog(full=True)
+
+        # 2d. /sticker <tên bộ>: send a random sticker from that pack
         sticker_match = re.match(r"^(?:/sticker|sticker)\s+(.+)$", cleaned_text, re.IGNORECASE)
         if sticker_match:
             requested = sticker_match.group(1).strip()
-            if requested.lower() in ["danh sách", "list", "kho", "menu"]:
-                return True, sticker_service.list_catalog()
-
             item = sticker_service.get_sticker(requested)
             if item:
                 sticker_id, preview_url = item
                 # Return a marker so message_handler can dispatch via sendSticker.
                 return True, f"[STICKER:{sticker_id}|{preview_url}]"
-            return True, f"❓ Bot chưa có bộ sticker '{requested}'.\n{sticker_service.list_catalog()}"
-
-        # 2c. Plain /sticker without argument: list catalog
-        if text_lower == "/sticker" or text_lower == "sticker":
-            return True, sticker_service.list_catalog()
+            return True, f"❓ Bot chưa có bộ sticker '{requested}'.\n{sticker_service.list_catalog(full=False)}"
 
         # 3. Phím 1 (Hướng dẫn lưu)
         if text_lower == "1":
