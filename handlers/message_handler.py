@@ -9,6 +9,7 @@ from services.semantic_memory_service import semantic_memory_service
 from services.quota_service import quota_service
 from services.aggregator_service import aggregator_service
 from services.image_service import image_service
+from services.sticker_service import sticker_service
 from services.formatter import (
     clean_mention,
     clean_markdown_for_zalo,
@@ -129,11 +130,17 @@ class MessageHandler:
         if is_cmd:
             logger.info(f"Executing command directly for {sender_name} ({user_id}): {cleaned_text[:50]}")
             if cmd_reply:
-                zalo_client.send_message(
-                    chat_id=str(chat_id),
-                    text=clean_markdown_for_zalo(cmd_reply),
-                    parse_mode="markdown"
-                )
+                # Handle sticker command marker: [STICKER:<url>]
+                sticker_marker = re.match(r"^\[STICKER:(https?://[^\]]+)\]$", cmd_reply.strip())
+                if sticker_marker:
+                    sticker_url = sticker_marker.group(1)
+                    zalo_client.send_sticker(str(chat_id), sticker_url)
+                else:
+                    zalo_client.send_message(
+                        chat_id=str(chat_id),
+                        text=clean_markdown_for_zalo(cmd_reply),
+                        parse_mode="markdown"
+                    )
             return {"status": "command_processed", "chat_id": chat_id}
 
         # 2. Queue conversational messages into Debounce Aggregator
@@ -273,6 +280,14 @@ class MessageHandler:
             text=final_send_text,
             parse_mode="markdown"
         )
+
+        # 8b. Optionally send a context-matching sticker right after the text.
+        #     This makes the bot feel more lively while staying text-first.
+        if settings.STICKER_AUTO_SEND:
+            sticker_url = sticker_service.pick_sticker_for_text(reply_text)
+            if sticker_url:
+                logger.info(f"Sending matching sticker for reply: {sticker_url[:80]}...")
+                zalo_client.send_sticker(str(chat_id), sticker_url)
 
         # 9. Save turn to conversation database
         saved_msg = f"{sender_name}: [Hình ảnh] {combined_cleaned_text}" if image_data else (f"{sender_name}: {combined_cleaned_text}" if sender_name else combined_cleaned_text)

@@ -3,6 +3,7 @@ from typing import Optional, Tuple
 from config.settings import settings
 from services.context_service import context_service
 from services.knowledge_service import knowledge_service
+from services.sticker_service import sticker_service
 
 
 class CommandHandler:
@@ -14,9 +15,11 @@ class CommandHandler:
             "2️⃣ /knowledge : Xem kho kiến thức đã lưu trữ\n"
             "3️⃣ /summary : Tóm tắt nội dung thảo luận 12 giờ qua\n"
             "4️⃣ /clear : Xóa lịch sử trò chuyện ngắn hạn gần đây\n"
-            "5️⃣ /help : Xem lại menu hướng dẫn này\n\n"
+            "5️⃣ /help : Xem lại menu hướng dẫn này\n"
+            "6️⃣ /sticker : Xem kho sticker hoặc gửi thử /sticker <tên>\n\n"
             "👉 Trong nhóm chat, hãy @mention bot hoặc trả lời (quote) tin nhắn của bot để bot tự động tham gia.\n"
-            "👉 Trong chat riêng, bạn chỉ cần gửi tin nhắn bất kỳ là bot sẽ trả lời."
+            "👉 Trong chat riêng, bạn chỉ cần gửi tin nhắn bất kỳ là bot sẽ trả lời.\n"
+            "👉 Bot có thể tự động gửi sticker phù hợp với nội dung câu trả lời."
         )
         if is_admin:
             menu += (
@@ -52,6 +55,19 @@ class CommandHandler:
         # 2. Menu / Help / Phím 5
         if text_lower in ["/menu", "menu", "/help", "help", "hướng dẫn", "5"]:
             return True, self.get_menu_text(is_admin=is_admin_user)
+
+        # 2b. Sticker catalog / manual sticker command
+        sticker_match = re.match(r"^(?:/sticker|sticker)\s*(.*)$", cleaned_text, re.IGNORECASE)
+        if sticker_match:
+            requested_tag = sticker_match.group(1).strip().lower()
+            if requested_tag and requested_tag not in ["danh sách", "list", "kho", "menu"]:
+                url = sticker_service.get_sticker(requested_tag)
+                if url:
+                    # Command handler returns text, but the caller can also send the sticker.
+                    # We return a special marker so message_handler can dispatch it.
+                    return True, f"[STICKER:{url}]"
+                return True, f"❓ Bot chưa có sticker cho từ khóa '{requested_tag}'.\n{sticker_service.list_catalog()}"
+            return True, sticker_service.list_catalog()
 
         # 3. Phím 1 (Hướng dẫn lưu)
         if text_lower == "1":

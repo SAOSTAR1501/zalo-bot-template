@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     FREE_MESSAGE_QUOTA: int = 10                  # Free 1-1 messages for new users
     MAX_SPAM_WARNINGS: int = 3                    # Replies before silent drop
 
+    # Stickers
+    STICKER_CATALOG_JSON: str = ""          # Optional JSON override of the sticker catalog
+    STICKER_EXTRA_URLS: str = ""            # Extra sticker URLs: "laugh: url1, url2 | cry: url3"
+    STICKER_AUTO_SEND: bool = True          # Allow bot to auto-send a matching sticker with replies
+
     # Server
     PORT: int = 8080
     HOST: str = "0.0.0.0"

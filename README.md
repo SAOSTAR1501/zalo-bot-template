@@ -29,7 +29,7 @@ Template mã nguồn hoàn chỉnh, chuẩn Production cho Chatbot Zalo AI thôn
   * `/knowledge`: Xem kho kiến thức đã lưu của nhóm.
   * `/summary`: Yêu cầu bot tự động tóm tắt các thảo luận trong 12 tiếng qua.
 * **Menu Lệnh & Phân Quyền Thông Minh**: Gõ `/menu` để xem menu chức năng; chỉ riêng Admin mới thấy các lệnh quản trị và hướng dẫn gói.
-* **Định Dạng Rich Text Chuẩn Zalo**: Tận dụng `parse_mode=markdown` của Zalo Bot Platform để gửi **in đậm**, *in nghiêng*, ~~gạch ngang~~, danh sách `•` và màu sắc. Tự động loại bỏ các thẻ/code block không được hỗ trợ.
+* **Định Dạng Rich Text & Sticker Thông Minh**: Tận dụng `parse_mode=markdown` của Zalo Bot Platform để gửi **in đậm**, *in nghiêng*, ~~gạch ngang~~, danh sách `•` và màu sắc. Bot còn có kho sticker theo sentiment (`hello`, `thanks`, `laugh`, `love`, `cry`, `angry`, `ok`...) và lệnh `/sticker <tên>` để gửi sticker thủ công hoặc tự động kèm theo câu trả lời.
 * **Sẵn Sàng Triển Khai (Production Ready)**: Hỗ trợ cả **Docker Compose** và **Systemd Linux Service**.
 
 ---
@@ -96,6 +96,9 @@ cp .env.example .env
 * `ZALO_BOT_TOKEN`: Lấy từ [bot.zaloplatforms.com](https://bot.zaloplatforms.com)
 * `ZALO_WEBHOOK_SECRET`: Chuỗi bí mật tùy chọn của bạn
 * `AI_PROVIDER`: `ollama` hoặc `gemini`
+* `STICKER_AUTO_SEND`: `true`/`false` — tự động gửi sticker phù hợp với câu trả lời
+* `STICKER_CATALOG_JSON`: JSON override kho sticker (`{"laugh": ["url1"], "love": ["url2"]}`)
+* `STICKER_EXTRA_URLS`: Thêm sticker theo cú pháp `laugh: url1, url2 | love: url3`
 * `OLLAMA_API_KEY`: API Key kết nối API LLM
 * `OLLAMA_MODEL`: Model mặc định cho text (ví dụ: `deepseek-v4-pro:0813`)
 * `VISION_MODEL`: Model xử lý hình ảnh (ví dụ: `kimi-k2.7-code`)
@@ -146,6 +149,7 @@ sudo systemctl status zalo-bot
 | `/knowledge` | `2` | Xem lại các kiến thức nhóm đã lưu trữ. |
 | `/summary` | `3` | Tóm tắt các nội dung và quyết định trong 12 giờ qua. |
 | `/clear` | `4` | Xóa bộ nhớ trò chuyện ngắn hạn gần đây. |
+| `/sticker` | `6` | Xem kho sticker hoặc gửi thử `/sticker laugh`, `/sticker love`, v.v. |
 
 ### 👑 Dành riêng cho Quản Trị Viên (Admin):
 
