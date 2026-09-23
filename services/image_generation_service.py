@@ -11,57 +11,6 @@ from typing import Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-def _translate_to_english(text: str) -> str:
-    """Translate a Vietnamese image prompt to English using the local Ollama LLM."""
-    try:
-        # Import here to avoid circular dependencies at module load time.
-        import json
-        from config.settings import settings
-
-        url = settings.OLLAMA_BASE_URL.rstrip("/") + "/v1/chat/completions"
-        headers = {"Content-Type": "application/json"}
-        if settings.OLLAMA_API_KEY:
-            headers["Authorization"] = f"Bearer {settings.OLLAMA_API_KEY}"
-
-        payload = {
-            "model": settings.OLLAMA_MODEL,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "Translate the user's image description into a short, "
-                        "vivid English image-generation prompt. Keep it under 30 words. "
-                        "Reply with ONLY the English prompt, no explanation, no quotes, no markdown."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"Translate to English:\n\n{text}",
-                },
-            ],
-            "temperature": 0.2,
-            "max_tokens": 80,
-        }
-
-        r = requests.post(url, json=payload, headers=headers, timeout=(5, 30))
-        if r.status_code == 200:
-            data = r.json()
-            if "choices" in data and len(data["choices"]) > 0:
-                translated = data["choices"][0]["message"]["content"].strip()
-                # Strip common wrapper characters and explanations.
-                translated = re.sub(r"^[^a-zA-Z0-9]*", "", translated)
-                translated = re.sub(r"[^a-zA-Z0-9\s\-_.,:;!?()]+$", "", translated)
-                translated = translated.strip().strip('"').strip("'")
-                if translated and len(translated) > 3:
-                    logger.info(f"Translated image prompt: '{text[:60]}' -> '{translated[:80]}'")
-                    return translated
-        else:
-            logger.warning(f"Translation LLM returned {r.status_code}: {r.text[:200]}")
-    except Exception as e:
-        logger.warning(f"Failed to translate prompt to English: {e}")
-    return text
-
-
 class ImageGenerationService:
     """
     Generate images for the bot.
@@ -149,11 +98,9 @@ class ImageGenerationService:
         Pollinations.ai works best with English prompts, so we translate the
         description before building the URL.
         """
-        logger.info(f"Original image prompt: {description[:80]}...")
-        english_description = _translate_to_english(description)
-        logger.info(f"Generating image URL with Pollinations.ai for: {english_description[:80]}...")
+        logger.info(f"Generating image URL with Pollinations.ai for: {description[:80]}...")
         try:
-            encoded = requests.utils.quote(english_description)
+            encoded = requests.utils.quote(description)
             url = (
                 f"{self.POLLINATIONS_BASE}/{encoded}"
                 f"?width=1024&height=1024&nologo=true"
