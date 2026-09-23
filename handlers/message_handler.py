@@ -319,7 +319,10 @@ class MessageHandler:
         if latest_event.get("pseudo_mentions"):
             prompt_with_sender += f"\n[Các người dùng được đề cập trong câu hỏi: {', '.join(latest_event['pseudo_mentions'])}]"
 
-        # 6. Generate AI reply with Tri-Tier Context + Multimodal Vision
+        # 6. Send typing action while LLM is generating the reply
+        zalo_client.send_chat_action(str(chat_id), "typing")
+
+        # 7. Generate AI reply with Tri-Tier Context + Multimodal Vision
         raw_ai_reply = llm_service.generate_reply(
             prompt=prompt_with_sender,
             history=history,
