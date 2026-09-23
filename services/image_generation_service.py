@@ -22,11 +22,8 @@ def _translate_to_english(text: str) -> str:
             "into a short, vivid English image-generation prompt. Keep it under 30 words. "
             "Reply with ONLY the translated prompt, no explanation, no quotes."
         )
-        translated = llm_service.generate_response(
+        translated = llm_service.generate_reply(
             prompt=f"Translate this image description to English:\n\n{text}",
-            system_prompt=system,
-            temperature=0.3,
-            max_tokens=120,
         )
         translated = translated.strip().strip('"').strip("'")
         if translated and len(translated) > 3:
