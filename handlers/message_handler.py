@@ -196,18 +196,24 @@ class MessageHandler:
                         text="🎨 Đang tạo ảnh, vui lòng đợi một chút nhé...",
                         parse_mode="markdown"
                     )
-                    # Keep typing indicator alive while generating
-                    stop_typing = _start_typing_heartbeat(str(chat_id))
                     try:
                         success, image_source = image_generation_service.generate_image(gen_description)
-                    finally:
-                        stop_typing.set()
-                    if success:
-                        zalo_client.send_photo(str(chat_id), image_source, caption=gen_description)
-                    else:
+                        logger.info(f"Image generation result: success={success}, source={image_source[:120] if image_source else 'None'}")
+                        if success:
+                            logger.info(f"Calling send_photo for chat {chat_id} with source {image_source[:120]}")
+                            photo_result = zalo_client.send_photo(str(chat_id), image_source, caption=gen_description)
+                            logger.info(f"send_photo result: {photo_result}")
+                        else:
+                            zalo_client.send_message(
+                                chat_id=str(chat_id),
+                                text=f"❌ Không tạo được ảnh: {image_source}",
+                                parse_mode="markdown"
+                            )
+                    except Exception as e:
+                        logger.exception(f"Error during image generation/send for command: {gen_description}")
                         zalo_client.send_message(
                             chat_id=str(chat_id),
-                            text=f"❌ Không tạo được ảnh: {image_source}",
+                            text=f"❌ Lỗi khi gửi ảnh: {str(e)[:200]}",
                             parse_mode="markdown"
                         )
                     return {"status": "command_processed", "chat_id": chat_id}
@@ -409,18 +415,24 @@ class MessageHandler:
                 text="🎨 Đang tạo ảnh, vui lòng đợi một chút nhé...",
                 parse_mode="markdown"
             )
-            # Keep typing indicator alive while generating
-            stop_typing = _start_typing_heartbeat(str(chat_id))
             try:
                 success, image_source = image_generation_service.generate_image(gen_image_description)
-            finally:
-                stop_typing.set()
-            if success:
-                zalo_client.send_photo(str(chat_id), image_source, caption=gen_image_description)
-            else:
+                logger.info(f"Image generation result: success={success}, source={image_source[:120] if image_source else 'None'}")
+                if success:
+                    logger.info(f"Calling send_photo for chat {chat_id} with source {image_source[:120]}")
+                    photo_result = zalo_client.send_photo(str(chat_id), image_source, caption=gen_image_description)
+                    logger.info(f"send_photo result: {photo_result}")
+                else:
+                    zalo_client.send_message(
+                        chat_id=str(chat_id),
+                        text=f"❌ Không tạo được ảnh: {image_source}",
+                        parse_mode="markdown"
+                    )
+            except Exception as e:
+                logger.exception(f"Error during image generation/send: {gen_image_description}")
                 zalo_client.send_message(
                     chat_id=str(chat_id),
-                    text=f"❌ Không tạo được ảnh: {image_source}",
+                    text=f"❌ Lỗi khi gửi ảnh: {str(e)[:200]}",
                     parse_mode="markdown"
                 )
 

@@ -160,6 +160,7 @@ class ZaloBotClient:
             payload["parse_mode"] = parse_mode
 
         try:
+            logger.info(f"sendPhoto called for chat {chat_id}, source={photo_url[:120] if photo_url else 'None'}")
             # Local file path: upload via multipart/form-data
             if os.path.isfile(photo_url):
                 with open(photo_url, "rb") as f:
@@ -167,8 +168,9 @@ class ZaloBotClient:
                     r = self.session.post(url, data=payload, files=files, timeout=(15, 60))
             else:
                 payload["photo"] = photo_url
-                r = self.session.post(url, json=payload, timeout=(10, 25))
-            return r.json()
+                r = self.session.post(url, json=payload, timeout=(10, 30))
+            logger.info(f"sendPhoto response ({r.status_code}): {r.text[:300]}")
+            return r.json() if r.text else {"status_code": r.status_code}
         except Exception as e:
             logger.error(f"Failed to sendPhoto: {e}")
             return {"ok": False, "error": str(e)}
