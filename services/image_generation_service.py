@@ -11,6 +11,32 @@ from typing import Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+def _translate_to_english(text: str) -> str:
+    """Translate a Vietnamese image prompt to English using the local Ollama LLM."""
+    try:
+        # Lazy import to avoid circular dependencies and startup cost.
+        from services.llm_service import llm_service
+
+        system = (
+            "You are a translation assistant. Translate the user's image description "
+            "into a short, vivid English image-generation prompt. Keep it under 30 words. "
+            "Reply with ONLY the translated prompt, no explanation, no quotes."
+        )
+        translated = llm_service.generate_response(
+            prompt=f"Translate this image description to English:\n\n{text}",
+            system_prompt=system,
+            temperature=0.3,
+            max_tokens=120,
+        )
+        translated = translated.strip().strip('"').strip("'")
+        if translated and len(translated) > 3:
+            logger.info(f"Translated image prompt: '{text[:60]}' -> '{translated[:80]}'")
+            return translated
+    except Exception as e:
+        logger.warning(f"Failed to translate prompt to English: {e}")
+    return text
+
+
 class ImageGenerationService:
     """
     Generate images for the bot.
@@ -94,10 +120,15 @@ class ImageGenerationService:
         We do not verify the URL with a HEAD request because Pollinations.ai
         sometimes rejects HEAD (returns 500) or takes too long to render.  The
         generated URL is public and Zalo's sendPhoto will fetch it directly.
+
+        Pollinations.ai works best with English prompts, so we translate the
+        description before building the URL.
         """
-        logger.info(f"Generating image URL with Pollinations.ai for: {description[:80]}...")
+        logger.info(f"Original image prompt: {description[:80]}...")
+        english_description = _translate_to_english(description)
+        logger.info(f"Generating image URL with Pollinations.ai for: {english_description[:80]}...")
         try:
-            encoded = requests.utils.quote(description)
+            encoded = requests.utils.quote(english_description)
             url = (
                 f"{self.POLLINATIONS_BASE}/{encoded}"
                 f"?width=1024&height=1024&nologo=true"
