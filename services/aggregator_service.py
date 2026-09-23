@@ -11,10 +11,20 @@ class MessageAggregator:
     Asynchronous Debounced Message Aggregator.
     Gathers rapid consecutive messages from a user/group into a single batch
     before triggering LLM processing, avoiding fragmented replies and saving tokens.
+
+    Tuning:
+      - debounce_seconds: maximum wait time before flushing (e.g. 0.8s)
+      - eager_flush_seconds: if only 1 message is buffered and no new message arrives
+        after this shorter window, flush immediately for fast single-message replies.
     """
 
-    def __init__(self, debounce_seconds: float = settings.DEBOUNCE_WAIT_SECONDS):
+    def __init__(
+        self,
+        debounce_seconds: float = settings.DEBOUNCE_WAIT_SECONDS,
+        eager_flush_seconds: float = settings.DEBOUNCE_EAGER_FLUSH_SECONDS,
+    ):
         self.debounce_seconds = debounce_seconds
+        self.eager_flush_seconds = eager_flush_seconds
         self.buffers: Dict[str, List[Dict[str, Any]]] = {}
         self.timers: Dict[str, threading.Timer] = {}
         self.locks: Dict[str, threading.Lock] = {}
@@ -45,11 +55,15 @@ class MessageAggregator:
 
             self.buffers[chat_id].append(event_data)
             count = len(self.buffers[chat_id])
-            logger.info(f"Queued message {count} for chat {chat_id} (debounce: {self.debounce_seconds}s)")
+            logger.info(f"Queued message {count} for chat {chat_id} (debounce: {self.debounce_seconds}s, eager: {self.eager_flush_seconds}s)")
+
+            # Choose timer duration: eager flush for single-message batches,
+            # full debounce once multiple messages are queued.
+            wait_seconds = self.debounce_seconds if count > 1 else self.eager_flush_seconds
 
             # Start new debounce timer
             timer = threading.Timer(
-                self.debounce_seconds,
+                wait_seconds,
                 self._flush_buffer,
                 args=(chat_id, flush_callback)
             )

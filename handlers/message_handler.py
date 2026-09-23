@@ -1,4 +1,5 @@
 import logging
+import random
 import re
 from typing import Dict, Any, List, Optional
 from config.settings import settings
@@ -30,6 +31,23 @@ class MessageHandler:
         # Cached bot identity from getMe (lazy loaded on first message).
         self._bot_display_name: Optional[str] = None
         self._bot_user_id: Optional[str] = None
+        self._quick_replies: Dict[str, List[str]] = {
+            "hello": [
+                "Chào {name}! 👋 Mình là Bot Sao Assistant. Hôm nay mình giúp gì được cho bạn?",
+                "Xin chào {name}! 😊 Bạn cần mình hỗ trợ gì không?",
+                "Chào buổi {time} {name}! 👋",
+            ],
+            "thanks": [
+                "Không có gì {name}! 😊 Rất vui được giúp bạn.",
+                "Cảm ơn bạn {name}! 🙌",
+                "Rất vui được hỗ trợ {name}! 👍",
+            ],
+            "bye": [
+                "Tạm biệt {name}! 👋 Hẹn gặp lại.",
+                "Bye {name}! Chúc bạn một ngày tốt lành. 🌟",
+                "Tạm biệt {name}! Cần gì cợc gọi mình nhé. 😊",
+            ],
+        }
 
     def _refresh_bot_identity(self):
         """Fetch and cache the bot's own display name and user id from Zalo."""
@@ -176,9 +194,21 @@ class MessageHandler:
 
         return {"status": "queued_for_debounce", "chat_id": chat_id}
 
+    def _detect_quick_reply_intent(self, text: str) -> Optional[str]:
+        """Return quick-reply category if the text is a simple greeting/thanks/bye."""
+        text_lower = text.lower().strip()
+        # Simple exact/prefix matches - keep lightweight
+        if any(text_lower.startswith(w) for w in ["xin chào", "chào ", "chào", "hello", "hi ", "hi", "hey"]):
+            return "hello"
+        if any(text_lower.startswith(w) for w in ["cảm ơn", "cám ơn", "thank", "thanks", "tạ ơn"]):
+            return "thanks"
+        if any(text_lower.startswith(w) for w in ["tạm biệt", "bye", "goodbye", "bai"]):
+            return "bye"
+        return None
+
     def _process_aggregated_batch(self, chat_id: str, events: List[Dict[str, Any]]):
         """
-        Executes after debounce timer expires (no new messages for 2.5s).
+        Executes after debounce timer expires.
         Gathers all consecutive texts and images into a single prompt, saving tokens & sending 1 unified response.
         """
         if not events:
@@ -217,6 +247,14 @@ class MessageHandler:
                     lines.append(txt)
             combined_cleaned_text = "\n".join(lines)
             logger.info(f"Aggregated {len(events)} consecutive messages from {sender_name} ({chat_id}):\n{combined_cleaned_text}")
+
+        # 1b. Fast-path: short greeting/thanks/bye replies without calling LLM
+        if len(events) == 1 and not image_data and len(combined_cleaned_text) < 80:
+            quick_category = self._detect_quick_reply_intent(combined_cleaned_text)
+            if quick_category:
+                self._send_quick_reply(chat_id, sender_name, quick_category)
+                context_service.save_turn(str(chat_id), f"{sender_name}: {combined_cleaned_text}", self._quick_replies[quick_category][0].replace("{name}", sender_name or "bạn"), event_type=event_type)
+                return
 
         # 2. Check 1-1 Private Chat Quota & Spam Protection (1 turn per aggregated batch)
         can_process, is_silent, quota_notice, quota_badge = quota_service.check_user_quota(

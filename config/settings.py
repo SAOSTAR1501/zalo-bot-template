@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     DB_PATH: str = "data/zalo_bot.db"
 
     # Message Debouncing & Aggregation
-    DEBOUNCE_WAIT_SECONDS: float = 2.5            # Seconds to wait for consecutive messages before batch LLM call
+    DEBOUNCE_WAIT_SECONDS: float = 0.8             # Seconds to wait for consecutive messages before batch LLM call
+    DEBOUNCE_EAGER_FLUSH_SECONDS: float = 0.25     # If no new message arrives after this, flush immediately (fast single-message replies)
 
     ADMIN_USER_IDS: str = "3f6de3efa9a340fd19b2"  # Mai Công Sao
     ALLOWED_GROUP_IDS: str = ""
