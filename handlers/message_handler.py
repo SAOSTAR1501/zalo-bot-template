@@ -288,20 +288,6 @@ class MessageHandler:
             parse_mode="markdown"
         )
 
-        # 8b. Optionally send a context-matching sticker right after the text.
-        #     This makes the bot feel more lively while staying text-first.
-        if settings.STICKER_AUTO_SEND:
-            sticker_item = sticker_service.pick_sticker_for_text(reply_text)
-            if sticker_item:
-                sticker_id, preview_url = sticker_item
-                logger.info(f"Sending matching sticker for reply: {sticker_id}")
-                # sendSticker expects "sticker": "<pack_id>" exactly like the JS example.
-                sticker_result = zalo_client.send_sticker(str(chat_id), sticker_id)
-                if not sticker_result.get("ok"):
-                    logger.warning(f"auto sendSticker failed ({sticker_result}), falling back to sendPhoto")
-                    if preview_url:
-                        zalo_client.send_photo(str(chat_id), preview_url, caption="")
-
         # 9. Save turn to conversation database
         saved_msg = f"{sender_name}: [Hình ảnh] {combined_cleaned_text}" if image_data else (f"{sender_name}: {combined_cleaned_text}" if sender_name else combined_cleaned_text)
         context_service.save_turn(str(chat_id), saved_msg, reply_text, event_type=event_type)

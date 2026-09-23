@@ -59,16 +59,21 @@ class CommandHandler:
             return True, self.get_menu_text(is_admin=is_admin_user)
 
         # 2b. Sticker catalog / manual sticker command
-        sticker_match = re.match(r"^(?:/sticker|sticker)\s*(.*)$", cleaned_text, re.IGNORECASE)
+        sticker_match = re.match(r"^(?:/sticker|sticker)\s+(.+)$", cleaned_text, re.IGNORECASE)
         if sticker_match:
-            requested_tag = sticker_match.group(1).strip().lower()
-            if requested_tag and requested_tag not in ["danh sách", "list", "kho", "menu"]:
-                item = sticker_service.get_sticker(requested_tag)
-                if item:
-                    sticker_id, preview_url = item
-                    # Return a marker so message_handler can dispatch via sendSticker.
-                    return True, f"[STICKER:{sticker_id}|{preview_url}]"
-                return True, f"❓ Bot chưa có sticker cho từ khóa '{requested_tag}'.\n{sticker_service.list_catalog()}"
+            requested = sticker_match.group(1).strip()
+            if requested.lower() in ["danh sách", "list", "kho", "menu"]:
+                return True, sticker_service.list_catalog()
+
+            item = sticker_service.get_sticker(requested)
+            if item:
+                sticker_id, preview_url = item
+                # Return a marker so message_handler can dispatch via sendSticker.
+                return True, f"[STICKER:{sticker_id}|{preview_url}]"
+            return True, f"❓ Bot chưa có bộ sticker '{requested}'.\n{sticker_service.list_catalog()}"
+
+        # 2c. Plain /sticker without argument: list catalog
+        if text_lower == "/sticker" or text_lower == "sticker":
             return True, sticker_service.list_catalog()
 
         # 3. Phím 1 (Hướng dẫn lưu)
