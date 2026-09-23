@@ -24,10 +24,12 @@ wheels/
 *.egg
 
 # Database & Data
-data/
-*.db
-*.sqlite3
-*.log
+data/*.db
+data/*.sqlite3
+data/*.log
+# Sticker catalog is managed by scripts/generate_sticker_catalog.py and committed.
+!data/sticker_catalog.json
+
 
 # Environment variables
 .env
