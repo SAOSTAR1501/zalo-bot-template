@@ -7,7 +7,6 @@ import tempfile
 import time
 import uuid
 from typing import Optional, Tuple
-from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +15,11 @@ class ImageGenerationService:
     """
     Generate images for the bot.
 
-    Primary: Pollinations.ai (free, fast text-to-image).
-    Fallback: Antigravity CLI (agy) if available and quota allows.
+    Primary: Pollinations.ai (free, fast text-to-image).  It returns a public
+    image URL that Zalo's sendPhoto API can consume directly.
 
-    This keeps /image fast and reliable while still allowing agy when it works.
+    Fallback: Antigravity CLI (agy) if available and quota allows.  agy saves
+    images locally, so local paths are returned as a fallback.
     """
 
     AGY_TIMEOUT_SECONDS = 90
@@ -60,31 +60,27 @@ class ImageGenerationService:
     def generate_image(
         self,
         description: str,
-        output_path: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """
         Generate an image from a text description.
 
-        Returns (success, message_or_path).  On success the second value is
-        the absolute path to the generated image file.
+        Returns (success, message_or_url_or_path).  On success the second value
+        is either a public image URL (Pollinations.ai) or a local file path
+        (agy fallback) that can be passed to Zalo sendPhoto.
         """
-        if output_path is None:
+        # 1. Primary: fast Pollinations.ai public URL
+        success, result = self._generate_with_pollinations(description)
+        if success:
+            return True, result
+
+        logger.warning(f"Pollinations.ai failed ({result}), trying agy fallback")
+
+        # 2. Fallback: agy (Antigravity CLI) -> local file path
+        if self.is_agy_available():
             output_path = os.path.join(
                 tempfile.gettempdir(),
                 f"bot_image_{uuid.uuid4().hex[:12]}.png",
             )
-        output_path = os.path.abspath(output_path)
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-        # 1. Primary: fast Pollinations.ai
-        success, result = self._generate_with_pollinations(description, output_path)
-        if success:
-            return True, output_path
-
-        logger.warning(f"Pollinations.ai failed ({result}), trying agy fallback")
-
-        # 2. Fallback: agy (Antigravity CLI)
-        if self.is_agy_available():
             return self._generate_with_agy(description, output_path)
 
         return False, f"Pollinations.ai: {result}; agy not available"
@@ -92,10 +88,9 @@ class ImageGenerationService:
     def _generate_with_pollinations(
         self,
         description: str,
-        output_path: str,
     ) -> Tuple[bool, str]:
-        """Free primary: Pollinations.ai text-to-image."""
-        logger.info(f"Generating image with Pollinations.ai for: {description[:80]}...")
+        """Free primary: Pollinations.ai returns a public image URL."""
+        logger.info(f"Generating image URL with Pollinations.ai for: {description[:80]}...")
         try:
             encoded = requests.utils.quote(description)
             url = (
@@ -104,21 +99,13 @@ class ImageGenerationService:
                 f"&seed={uuid.uuid4().int % 1000000}"
             )
 
-            r = requests.get(url, timeout=120)
-            if r.status_code != 200:
-                return False, f"HTTP {r.status_code}"
+            # Pollinations redirects to the actual image; verify it's reachable.
+            head = requests.head(url, timeout=30, allow_redirects=True)
+            if head.status_code != 200:
+                return False, f"HEAD {head.status_code}"
 
-            if len(r.content) == 0:
-                return False, "empty response"
-
-            with open(output_path, "wb") as f:
-                f.write(r.content)
-
-            logger.info(
-                f"Pollinations.ai image saved to {output_path} "
-                f"({len(r.content)} bytes)"
-            )
-            return True, output_path
+            logger.info(f"Pollinations.ai image URL ready: {url[:120]}...")
+            return True, url
 
         except Exception as e:
             logger.exception("Pollinations.ai failed")
@@ -129,6 +116,7 @@ class ImageGenerationService:
         description: str,
         output_path: str,
     ) -> Tuple[bool, str]:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         prompt = (
             f"Create an image matching the following description and save it "
             f"as a PNG file at exactly this path: {output_path}\n\n"

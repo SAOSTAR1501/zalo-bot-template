@@ -199,15 +199,15 @@ class MessageHandler:
                     # Keep typing indicator alive while generating
                     stop_typing = _start_typing_heartbeat(str(chat_id))
                     try:
-                        success, image_path = image_generation_service.generate_image(gen_description)
+                        success, image_source = image_generation_service.generate_image(gen_description)
                     finally:
                         stop_typing.set()
                     if success:
-                        zalo_client.send_photo(str(chat_id), image_path, caption=gen_description)
+                        zalo_client.send_photo(str(chat_id), image_source, caption=gen_description)
                     else:
                         zalo_client.send_message(
                             chat_id=str(chat_id),
-                            text=f"❌ Không tạo được ảnh: {image_path}",
+                            text=f"❌ Không tạo được ảnh: {image_source}",
                             parse_mode="markdown"
                         )
                     return {"status": "command_processed", "chat_id": chat_id}
@@ -412,15 +412,15 @@ class MessageHandler:
             # Keep typing indicator alive while generating
             stop_typing = _start_typing_heartbeat(str(chat_id))
             try:
-                success, image_path = image_generation_service.generate_image(gen_image_description)
+                success, image_source = image_generation_service.generate_image(gen_image_description)
             finally:
                 stop_typing.set()
             if success:
-                zalo_client.send_photo(str(chat_id), image_path, caption=gen_image_description)
+                zalo_client.send_photo(str(chat_id), image_source, caption=gen_image_description)
             else:
                 zalo_client.send_message(
                     chat_id=str(chat_id),
-                    text=f"❌ Không tạo được ảnh: {image_path}",
+                    text=f"❌ Không tạo được ảnh: {image_source}",
                     parse_mode="markdown"
                 )
 
