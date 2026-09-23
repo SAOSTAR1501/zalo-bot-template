@@ -4,7 +4,7 @@ from config.settings import settings
 from services.context_service import context_service
 from services.knowledge_service import knowledge_service
 from services.sticker_service import sticker_service
-from services.agy_image_service import agy_image_service
+from services.image_generation_service import image_generation_service
 
 
 class CommandHandler:
@@ -90,13 +90,11 @@ class CommandHandler:
                 return True, f"[STICKER:{sticker_id}|{preview_url}]"
             return True, f"❓ Bot chưa có bộ sticker '{requested}'.\n{sticker_service.list_catalog(full=False)}"
 
-        # 3. Generate image via Antigravity CLI (agy)
+        # 3. Generate image command
         image_match = re.match(r"^(?:/image|/vẽ|image|vẽ)\s+(.+)$", cleaned_text, re.IGNORECASE)
         if image_match:
             description = image_match.group(1).strip()
-            if not agy_image_service.is_available():
-                return True, "❌ Tính năng tạo ảnh chưa sẵn sàng. Vui lòng cài đặt và xác thực `agy` trên server."
-            return True, f"[IMAGE_AGY:{description}]"
+            return True, f"[IMAGE_GEN:{description}]"
 
         # 4. View Knowledge: /knowledge, phím 2
         if text_lower in ["/knowledge", "xem kiến thức", "kho kiến thức", "kiến thức đã lưu", "2"]:

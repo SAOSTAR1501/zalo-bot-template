@@ -1,6 +1,8 @@
 import logging
 import random
 import re
+import threading
+import time
 from typing import Dict, Any, List, Optional
 from config.settings import settings
 from services.zalo_client import zalo_client
@@ -12,7 +14,7 @@ from services.quota_service import quota_service
 from services.aggregator_service import aggregator_service
 from services.image_service import image_service
 from services.sticker_service import sticker_service
-from services.agy_image_service import agy_image_service
+from services.image_generation_service import image_generation_service
 from services.formatter import (
     clean_mention,
     clean_markdown_for_zalo,
@@ -25,6 +27,27 @@ from services.formatter import (
 from handlers.command_handler import command_handler
 
 logger = logging.getLogger(__name__)
+
+
+def _start_typing_heartbeat(chat_id: str, interval: float = 4.0) -> threading.Event:
+    """
+    Send repeated typing chat actions until the returned event is set.
+    Zalo's typing indicator expires after a few seconds, so we keep it alive
+    during long-running operations like image generation.
+    """
+    stop_event = threading.Event()
+
+    def _heartbeat():
+        while not stop_event.is_set():
+            try:
+                zalo_client.send_chat_action(chat_id, "typing")
+            except Exception as e:
+                logger.debug(f"Typing heartbeat failed: {e}")
+            stop_event.wait(interval)
+
+    thread = threading.Thread(target=_heartbeat, daemon=True)
+    thread.start()
+    return stop_event
 
 
 class MessageHandler:
@@ -163,20 +186,24 @@ class MessageHandler:
                             zalo_client.send_photo(str(chat_id), preview_url, caption="")
                     return {"status": "command_processed", "chat_id": chat_id}
 
-                # Handle image generation command marker: [IMAGE_AGY:<description>]
-                image_marker = re.search(r"\[IMAGE_AGY:([^\]]+)\]", cmd_reply.strip())
+                # Handle image generation command marker: [IMAGE_GEN:<description>]
+                image_marker = re.search(r"\[IMAGE_(?:AGY|GEN):([^\]]+)\]", cmd_reply.strip())
                 if image_marker:
-                    agy_description = image_marker.group(1).strip()
-                    logger.info(f"Generating agy image from command: {agy_description}")
+                    gen_description = image_marker.group(1).strip()
+                    logger.info(f"Generating image from command: {gen_description}")
                     zalo_client.send_message(
                         chat_id=str(chat_id),
                         text="🎨 Đang tạo ảnh, vui lòng đợi một chút nhé...",
                         parse_mode="markdown"
                     )
-                    zalo_client.send_chat_action(str(chat_id), "typing")
-                    success, image_path = agy_image_service.generate_image(agy_description)
+                    # Keep typing indicator alive while generating
+                    stop_typing = _start_typing_heartbeat(str(chat_id))
+                    try:
+                        success, image_path = image_generation_service.generate_image(gen_description)
+                    finally:
+                        stop_typing.set()
                     if success:
-                        zalo_client.send_photo(str(chat_id), image_path, caption=agy_description)
+                        zalo_client.send_photo(str(chat_id), image_path, caption=gen_description)
                     else:
                         zalo_client.send_message(
                             chat_id=str(chat_id),
@@ -343,15 +370,15 @@ class MessageHandler:
 
         # 7. Detect optional markers from LLM / command handler
         send_random_sticker = False
-        agy_image_description = None
+        gen_image_description = None
 
         if settings.STICKER_AUTO_SEND and "[STICKER_RANDOM]" in reply_text:
             reply_text = reply_text.replace("[STICKER_RANDOM]", "").strip()
             send_random_sticker = True
 
-        image_match = re.search(r"\[IMAGE_AGY:([^\]]+)\]", reply_text)
+        image_match = re.search(r"\[IMAGE_(?:AGY|GEN):([^\]]+)\]", reply_text)
         if image_match:
-            agy_image_description = image_match.group(1).strip()
+            gen_image_description = image_match.group(1).strip()
             reply_text = reply_text.replace(image_match.group(0), "").strip()
 
         # 8. Append transient quota badge if applicable
@@ -375,17 +402,21 @@ class MessageHandler:
                 zalo_client.send_sticker(str(chat_id), sticker_id)
 
         # 9c. Generate and send image requested via /image command
-        if agy_image_description:
-            logger.info(f"Generating agy image: {agy_image_description}")
+        if gen_image_description:
+            logger.info(f"Generating image: {gen_image_description}")
             zalo_client.send_message(
                 chat_id=str(chat_id),
                 text="🎨 Đang tạo ảnh, vui lòng đợi một chút nhé...",
                 parse_mode="markdown"
             )
-            zalo_client.send_chat_action(str(chat_id), "typing")
-            success, image_path = agy_image_service.generate_image(agy_image_description)
+            # Keep typing indicator alive while generating
+            stop_typing = _start_typing_heartbeat(str(chat_id))
+            try:
+                success, image_path = image_generation_service.generate_image(gen_image_description)
+            finally:
+                stop_typing.set()
             if success:
-                zalo_client.send_photo(str(chat_id), image_path, caption=agy_image_description)
+                zalo_client.send_photo(str(chat_id), image_path, caption=gen_image_description)
             else:
                 zalo_client.send_message(
                     chat_id=str(chat_id),
