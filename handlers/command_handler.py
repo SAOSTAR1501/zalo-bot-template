@@ -61,11 +61,11 @@ class CommandHandler:
         if sticker_match:
             requested_tag = sticker_match.group(1).strip().lower()
             if requested_tag and requested_tag not in ["danh sách", "list", "kho", "menu"]:
-                url = sticker_service.get_sticker(requested_tag)
-                if url:
-                    # Command handler returns text, but the caller can also send the sticker.
-                    # We return a special marker so message_handler can dispatch it.
-                    return True, f"[STICKER:{url}]"
+                item = sticker_service.get_sticker(requested_tag)
+                if item:
+                    sticker_id, preview_url = item
+                    # Return a marker so message_handler can dispatch via sendSticker.
+                    return True, f"[STICKER:{sticker_id}|{preview_url}]"
                 return True, f"❓ Bot chưa có sticker cho từ khóa '{requested_tag}'.\n{sticker_service.list_catalog()}"
             return True, sticker_service.list_catalog()
 

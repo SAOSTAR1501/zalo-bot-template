@@ -3,7 +3,7 @@ import random
 import re
 import requests
 import json
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -31,15 +31,15 @@ class StickerService:
     """
     Sticker picker for Zalo Bot.
 
-    Zalo Bot Platform's sendSticker API accepts a sticker URL.  The official
-    sticker store (https://stickers.zaloapp.com) exposes a public endpoint that
-    lists available sticker packs.  We use the pack-level preview / icon URLs
-    as the sticker asset.  If sendSticker is rejected, the caller can fall back
-    to sendPhoto with the same URL.
+    Zalo Bot Platform's sendSticker API accepts a sticker reference from
+    https://stickers.zaloapp.com.  The public sticker store endpoint lists
+    packs, each with an opaque pack id.  We send that pack id via sendSticker
+    and fall back to sending the pack preview image via sendPhoto if Zalo
+    rejects the id.
     """
 
     def __init__(self):
-        self._catalog: Optional[Dict[str, List[str]]] = None
+        self._catalog: Optional[Dict[str, List[Tuple[str, str]]]] = None
         self._last_fetch_error: Optional[str] = None
 
     # ------------------------------------------------------------------
@@ -49,18 +49,21 @@ class StickerService:
     def available_tags(self) -> List[str]:
         return sorted(self._get_catalog().keys())
 
-    def get_sticker(self, tag: str) -> Optional[str]:
-        """Return a random sticker URL for the given tag, or None if unknown."""
-        tag = tag.lower().strip()
-        urls = self._get_catalog().get(tag)
-        if not urls:
-            return None
-        return random.choice(urls)
-
-    def pick_sticker_for_text(self, text: str) -> Optional[str]:
+    def get_sticker(self, tag: str) -> Optional[Tuple[str, str]]:
         """
-        Naive keyword-based sticker picker. Looks for known sentiment keywords
-        in the supplied text (e.g. an AI reply) and returns a matching sticker.
+        Return a random (sticker_id, preview_url) tuple for the given tag,
+        or None if unknown.
+        """
+        tag = tag.lower().strip()
+        items = self._get_catalog().get(tag)
+        if not items:
+            return None
+        return random.choice(items)
+
+    def pick_sticker_for_text(self, text: str) -> Optional[Tuple[str, str]]:
+        """
+        Naive keyword-based sticker picker. Returns (sticker_id, preview_url)
+        for the first sentiment matched in the text.
         """
         if not text:
             return None
@@ -103,8 +106,8 @@ class StickerService:
 
     def list_catalog(self) -> str:
         lines = ["🎨 KHO STICKER CỦA BOT:"]
-        for tag, urls in sorted(self._get_catalog().items()):
-            lines.append(f"• {tag}: {len(urls)} sticker(s)")
+        for tag, items in sorted(self._get_catalog().items()):
+            lines.append(f"• {tag}: {len(items)} bộ sticker")
         if self._last_fetch_error:
             lines.append(f"\n⚠️ Lưu ý: đang dùng sticker mặc định do lỗi fetch ({self._last_fetch_error}).")
         lines.append("\nGõ /sticker <tên> để bot gửi thử. Ví dụ: /sticker laugh")
@@ -113,7 +116,7 @@ class StickerService:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _get_catalog(self) -> Dict[str, List[str]]:
+    def _get_catalog(self) -> Dict[str, List[Tuple[str, str]]]:
         """Lazy-load sticker catalog from Zalo sticker store or env overrides."""
         if self._catalog is not None:
             return self._catalog
@@ -121,8 +124,18 @@ class StickerService:
         # 1. Env override wins.
         if settings.STICKER_CATALOG_JSON:
             try:
-                self._catalog = json.loads(settings.STICKER_CATALOG_JSON)
+                raw = json.loads(settings.STICKER_CATALOG_JSON)
+                # Convert simple URL lists to (id, url) tuples.
+                catalog: Dict[str, List[Tuple[str, str]]] = {}
+                for tag, entries in raw.items():
+                    catalog[tag] = []
+                    for entry in entries:
+                        if isinstance(entry, dict):
+                            catalog[tag].append((entry.get("id", ""), entry.get("url", "")))
+                        elif isinstance(entry, str):
+                            catalog[tag].append((entry, entry))
                 logger.info("Loaded custom sticker catalog from STICKER_CATALOG_JSON")
+                self._catalog = catalog
                 return self._catalog
             except Exception as e:
                 logger.warning(f"Invalid STICKER_CATALOG_JSON, falling back: {e}")
@@ -133,11 +146,11 @@ class StickerService:
             self._catalog = live_catalog
             return self._catalog
 
-        # 3. Fallback to a small built-in set of verified public URLs.
+        # 3. Fallback to a small built-in set.
         self._catalog = self._default_catalog()
         return self._catalog
 
-    def _fetch_zalo_sticker_catalog(self) -> Optional[Dict[str, List[str]]]:
+    def _fetch_zalo_sticker_catalog(self) -> Optional[Dict[str, List[Tuple[str, str]]]]:
         """Fetch sticker packs from https://stickers.zaloapp.com/sticker and map to sentiments."""
         try:
             r = requests.get(
@@ -158,20 +171,20 @@ class StickerService:
                 self._last_fetch_error = "empty pack list"
                 return None
 
-            catalog: Dict[str, List[str]] = {tag: [] for tag in SENTIMENT_KEYWORDS.keys()}
-            seen_urls: set = set()
+            catalog: Dict[str, List[Tuple[str, str]]] = {tag: [] for tag in SENTIMENT_KEYWORDS.keys()}
+            seen_ids: set = set()
 
             for pack in packs:
+                pack_id = pack.get("id", "")
                 name = (pack.get("name") or "").lower()
-                # Prefer preview image, fallback to icon.
-                url = pack.get("thumbImg") or pack.get("iconUrl") or ""
-                if not url or url in seen_urls:
+                preview_url = pack.get("thumbImg") or pack.get("iconUrl") or ""
+                if not pack_id or pack_id in seen_ids:
                     continue
-                seen_urls.add(url)
+                seen_ids.add(pack_id)
 
                 for tag, keywords in SENTIMENT_KEYWORDS.items():
                     if any(kw in name for kw in keywords):
-                        catalog[tag].append(url)
+                        catalog[tag].append((pack_id, preview_url))
                         break  # one pack belongs to first matching sentiment only
 
             # Drop empty categories.
@@ -181,7 +194,7 @@ class StickerService:
                 self._last_fetch_error = "no sentiment mapping"
                 return None
 
-            logger.info(f"Loaded {sum(len(v) for v in catalog.values())} sticker URLs from Zalo store")
+            logger.info(f"Loaded {sum(len(v) for v in catalog.values())} sticker packs from Zalo store")
             self._last_fetch_error = None
             return catalog
 
@@ -190,16 +203,16 @@ class StickerService:
             logger.warning(f"Failed to fetch Zalo sticker catalog: {e}")
             return None
 
-    def _default_catalog(self) -> Dict[str, List[str]]:
-        """A minimal fallback catalog with known-working public Zalo sticker URLs."""
+    def _default_catalog(self) -> Dict[str, List[Tuple[str, str]]]:
+        """A minimal fallback catalog with known public pack ids / preview URLs."""
         return {
-            "hello": ["https://zalo-api.zadn.vn/e/7/3/5/1/12658/preview/440x440.png"],
-            "laugh": ["https://zalo-api.zadn.vn/e/7/3/5/1/12658/preview/440x440.png"],
-            "love": ["https://zalo-api.zadn.vn/2/3/6/5/2/10590/preview/love_cover.png"],
-            "cry": ["https://zalo-api.zadn.vn/d/2/a/9/a/12003/preview/440x440.png"],
-            "ok": ["https://zalo-api.zadn.vn/9/b/2/3/2/12628/preview/440x440.png"],
-            "bye": ["https://zalo-api.zadn.vn/8/8/9/b/8/12738/preview/440x440.png"],
-            "congrats": ["https://zalo-api.zadn.vn/5/a/5/f/a/12689/preview/440x440.png"],
+            "hello": [("34c1ca1af65f1f01464e", "https://zalo-api.zadn.vn/e/7/3/5/1/12658/preview/440x440.png")],
+            "laugh": [("34c1ca1af65f1f01464e", "https://zalo-api.zadn.vn/e/7/3/5/1/12658/preview/440x440.png")],
+            "love": [("bf596d9a51dfb881e1ce", "https://zalo-api.zadn.vn/2/3/6/5/2/10590/preview/love_cover.png")],
+            "cry": [("e5c88a0cb6495f170658", "https://zalo-api.zadn.vn/d/2/a/9/a/12003/preview/440x440.png")],
+            "ok": [("0ef7d62cea6903375a78", "https://zalo-api.zadn.vn/9/b/2/3/2/12628/preview/440x440.png")],
+            "bye": [("62282cf310b6f9e8a0a7", "https://zalo-api.zadn.vn/8/8/9/b/8/12738/preview/440x440.png")],
+            "congrats": [("ef4ef295ced0278e7ec1", "https://zalo-api.zadn.vn/5/a/5/f/a/12689/preview/440x440.png")],
         }
 
 
