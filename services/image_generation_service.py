@@ -89,7 +89,12 @@ class ImageGenerationService:
         self,
         description: str,
     ) -> Tuple[bool, str]:
-        """Free primary: Pollinations.ai returns a public image URL."""
+        """Free primary: Pollinations.ai returns a public image URL.
+
+        We do not verify the URL with a HEAD request because Pollinations.ai
+        sometimes rejects HEAD (returns 500) or takes too long to render.  The
+        generated URL is public and Zalo's sendPhoto will fetch it directly.
+        """
         logger.info(f"Generating image URL with Pollinations.ai for: {description[:80]}...")
         try:
             encoded = requests.utils.quote(description)
@@ -98,11 +103,6 @@ class ImageGenerationService:
                 f"?width=1024&height=1024&nologo=true"
                 f"&seed={uuid.uuid4().int % 1000000}"
             )
-
-            # Pollinations redirects to the actual image; verify it's reachable.
-            head = requests.head(url, timeout=30, allow_redirects=True)
-            if head.status_code != 200:
-                return False, f"HEAD {head.status_code}"
 
             logger.info(f"Pollinations.ai image URL ready: {url[:120]}...")
             return True, url
