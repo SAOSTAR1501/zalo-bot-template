@@ -9,9 +9,10 @@ Template mã nguồn hoàn chỉnh, chuẩn Production cho Chatbot Zalo AI thôn
 * **Đa Nhà Cung Cấp LLM & Dynamic Routing**:
   * **Xử lý Text thông minh**: Hỗ trợ **Ollama Cloud/Local** (`deepseek-v4-pro:0813`, `gemma4:31b`...), **Google Gemini** (`gemini-2.0-flash`), **OpenAI / DeepSeek**.
   * **Đọc & Phân tích hình ảnh (Multimodal Vision)**: Tự động chuyển đổi sang model Vision **`kimi-k2.7-code`** (hoặc Gemini Vision / GPT-4o) khi người dùng gửi ảnh.
-* **Trích Dẫn & Trả Lời Tin Nhắn (Quoted Reply)**:
-  * Tự động trả lời dạng trích dẫn (`reply_to_message_id`) vào đúng tin nhắn/hình ảnh người dùng vừa gửi.
-  * Hiểu ngữ cảnh khi người dùng trong nhóm bấm "Trả lời" một tin nhắn cũ của người khác.
+* **Tương Tác Nhóm Thông Minh (Mention / Reply)**:
+  * Trong nhóm chat, bot chỉ tự động trả lời khi được `@mention` hoặc khi người dùng **trả lời (quote)** tin nhắn của bot, tránh spam toàn bộ nhóm.
+  * Khi trả lời, bot sẽ đề cập đến người dùng bằng tên hiển thị (`@Tên Người Dùng`) dưới dạng văn bản.\n"
+  * **Lưu ý**: Zalo Bot Platform không cho phép bot gửi mention tương tác thật hay reply quote chính thức, vì vậy bot sử dụng rich text để hiển thị tên người dùng và gửi tin nhắn thông thường.
 * **Gom Tin Nhắn Tự Động (Async Debounce Aggregator)**:
   * Tự động gom các tin nhắn gửi dồn dập, liên tục của người dùng trong khoảng 2.5s thành 1 prompt tổng thể duy nhất, giúp bot trả lời đầy đủ, không bị vụn vặt và tiết kiệm token tối đa.
 * **Episodic Summary Memory (Tiết kiệm >80% Token)**:
@@ -28,7 +29,7 @@ Template mã nguồn hoàn chỉnh, chuẩn Production cho Chatbot Zalo AI thôn
   * `/knowledge`: Xem kho kiến thức đã lưu của nhóm.
   * `/summary`: Yêu cầu bot tự động tóm tắt các thảo luận trong 12 tiếng qua.
 * **Menu Lệnh & Phân Quyền Thông Minh**: Gõ `/menu` để xem menu chức năng; chỉ riêng Admin mới thấy các lệnh quản trị và hướng dẫn gói.
-* **Bộ Lọc Markdown Chuẩn Zalo**: Tự động loại bỏ các dấu `**`, `*`, `###` và định dạng danh sách thành các dấu chấm tròn `• ` đẹp mắt, phù hợp với giao diện Zalo.
+* **Định Dạng Rich Text Chuẩn Zalo**: Tận dụng `parse_mode=markdown` của Zalo Bot Platform để gửi **in đậm**, *in nghiêng*, ~~gạch ngang~~, danh sách `•` và màu sắc. Tự động loại bỏ các thẻ/code block không được hỗ trợ.
 * **Sẵn Sàng Triển Khai (Production Ready)**: Hỗ trợ cả **Docker Compose** và **Systemd Linux Service**.
 
 ---

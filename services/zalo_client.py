@@ -2,7 +2,7 @@ import logging
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -78,19 +78,55 @@ class ZaloBotClient:
             logger.error(f"Failed to deleteWebhook: {e}")
             return {"ok": False, "error": str(e)}
 
-    def send_message(self, chat_id: str, text: str, reply_to_message_id: Optional[str] = None) -> Dict[str, Any]:
-        """Send plain text message to a user or group, optionally replying to / quoting a specific message."""
+    # ------------------------------------------------------------------
+    # Rich text helpers matching Zalo Bot Platform official docs
+    # ------------------------------------------------------------------
+    @staticmethod
+    def make_text_styles_bold(text: str) -> List[Dict[str, Any]]:
+        """Return a single bold style run covering the whole text (UTF-16 offsets)."""
+        # Zalo text_styles offsets are UTF-16 code units like JavaScript.
+        # For the common case where text has no surrogate pairs, len(text) is fine.
+        return [{"start": 0, "len": len(text), "st": ["b"]}]
+
+    @staticmethod
+    def make_text_styles_mention(display_name: str) -> List[Dict[str, Any]]:
+        """Style run that looks like a mention (blue/default color). Not a real mention."""
+        return [{"start": 0, "len": len(display_name), "st": ["c_050a19"]}]
+
+    # ------------------------------------------------------------------
+    # Send API methods
+    # ------------------------------------------------------------------
+    def send_message(
+        self,
+        chat_id: str,
+        text: str,
+        parse_mode: Optional[str] = None,
+        text_styles: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """
+        Send plain/rich text message to a user or group.
+
+        Official Zalo sendMessage parameters:
+          - chat_id (required)
+          - text (required, 1-2000 chars)
+          - parse_mode (optional): 'markdown' or 'html'
+          - text_styles (optional): array of style runs. If parse_mode is set,
+            text_styles is ignored by Zalo.
+        """
         if not self.token:
             logger.error("ZALO_BOT_TOKEN is not configured")
             return {"ok": False, "error": "Missing token"}
 
         url = self._url("sendMessage")
-        payload = {
+        payload: Dict[str, Any] = {
             "chat_id": str(chat_id),
             "text": text[:2000]
         }
-        if reply_to_message_id:
-            payload["reply_to_message_id"] = str(reply_to_message_id)
+
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        elif text_styles:
+            payload["text_styles"] = text_styles
 
         try:
             r = self.session.post(url, json=payload, timeout=(10, 25))
@@ -100,15 +136,23 @@ class ZaloBotClient:
             logger.error(f"Failed to sendMessage: {e}")
             return {"ok": False, "error": str(e)}
 
-    def send_photo(self, chat_id: str, photo_url: str, caption: Optional[str] = None) -> Dict[str, Any]:
-        """Send photo by URL."""
+    def send_photo(
+        self,
+        chat_id: str,
+        photo_url: str,
+        caption: Optional[str] = None,
+        parse_mode: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Send photo by URL with optional caption."""
         url = self._url("sendPhoto")
-        payload = {
+        payload: Dict[str, Any] = {
             "chat_id": str(chat_id),
             "photo": photo_url
         }
         if caption:
-            payload["caption"] = caption[:1024]
+            payload["caption"] = caption[:2000]
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         try:
             r = self.session.post(url, json=payload, timeout=(10, 25))
             return r.json()
@@ -116,6 +160,50 @@ class ZaloBotClient:
             logger.error(f"Failed to sendPhoto: {e}")
             return {"ok": False, "error": str(e)}
 
+    def send_sticker(self, chat_id: str, sticker_url: str) -> Dict[str, Any]:
+        """Send a sticker by URL (must come from https://stickers.zaloapp.com/)."""
+        url = self._url("sendSticker")
+        payload = {
+            "chat_id": str(chat_id),
+            "sticker": sticker_url
+        }
+        try:
+            r = self.session.post(url, json=payload, timeout=(10, 25))
+            return r.json()
+        except Exception as e:
+            logger.error(f"Failed to sendSticker: {e}")
+            return {"ok": False, "error": str(e)}
+
+    def send_voice(self, chat_id: str, voice_url: str) -> Dict[str, Any]:
+        """
+        Send a voice message (.aac) to a private chat only.
+        sendVoice does NOT support groups per Zalo docs.
+        """
+        url = self._url("sendVoice")
+        payload = {
+            "chat_id": str(chat_id),
+            "voice_url": voice_url
+        }
+        try:
+            r = self.session.post(url, json=payload, timeout=(10, 25))
+            return r.json()
+        except Exception as e:
+            logger.error(f"Failed to sendVoice: {e}")
+            return {"ok": False, "error": str(e)}
+
+    def send_chat_action(self, chat_id: str, action: str = "typing") -> Dict[str, Any]:
+        """Display a temporary chat action (typing, upload_photo)."""
+        url = self._url("sendChatAction")
+        payload = {
+            "chat_id": str(chat_id),
+            "action": action
+        }
+        try:
+            r = self.session.post(url, json=payload, timeout=(5, 15))
+            return r.json()
+        except Exception as e:
+            logger.error(f"Failed to sendChatAction: {e}")
+            return {"ok": False, "error": str(e)}
+
 
 zalo_client = ZaloBotClient()
-

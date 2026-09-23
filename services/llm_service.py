@@ -38,18 +38,19 @@ class LLMService:
         knowledge_base: str = "",
         rolling_summary: str = "",
         semantic_context: str = "",
-        image_data: Optional[str] = None
+        image_data: Optional[str] = None,
+        sender_name: str = ""
     ) -> str:
         """
         Dispatches prompt to the configured LLM provider with rolling summary, semantic RAG memory, knowledge base, and optional image.
         """
         try:
             if self.provider == "ollama" and (settings.OLLAMA_API_KEY or "localhost" in settings.OLLAMA_BASE_URL or "127.0.0.1" in settings.OLLAMA_BASE_URL):
-                return self._ollama_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data)
+                return self._ollama_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data, sender_name=sender_name)
             elif self.provider == "gemini" and settings.GEMINI_API_KEY:
-                return self._gemini_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data)
+                return self._gemini_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data, sender_name=sender_name)
             elif self.provider in ["openai", "deepseek"] and settings.OPENAI_API_KEY:
-                return self._openai_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data)
+                return self._openai_reply(prompt, history, knowledge_base, rolling_summary, semantic_context, image_data=image_data, sender_name=sender_name)
             elif self.provider == "opencode":
                 return self._opencode_reply(prompt)
         except Exception as e:
@@ -111,12 +112,17 @@ class LLMService:
             logger.error(f"Error calling LLM for summarization: {e}")
         return previous_summary or chunk_text[:200]
 
-    def _build_system_prompt(self, knowledge_base: str = "", rolling_summary: str = "", semantic_context: str = "") -> str:
+    def _build_system_prompt(self, knowledge_base: str = "", rolling_summary: str = "", semantic_context: str = "", sender_name: str = "") -> str:
         prompt = (
             "Bạn là Bot Sao Assistant trên Zalo, trợ lý AI thông minh và tận tâm của Admin Mai Công Sao.\n"
-            "Hãy trả lời ngắn gọn, súc tích, thân thiện bằng tiếng Việt.\n"
-            "LƯU Ý ĐỊNH DẠNG: TUYỆT ĐỐI KHÔNG sử dụng bất kỳ cú pháp markdown nào như **in đậm**, *in nghiêng*, dấu gạch dưới _, hoặc dấu thăng #, vì ứng dụng Zalo hiển thị dạng chữ thô và không hỗ trợ markdown. "
-            "Nếu liệt kê các ý, hãy dùng dấu gạch đầu dòng hoặc dấu chấm tròn •.\n"
+            "Hãy trả lời ngắn gọn, súc tích, thân thiện bằng tiếng Việt.\n\n"
+            "ĐỊNH DẠNG TIN NHẮN ZALO: Ứng dụng Zalo hỗ trợ một số định dạng markdown qua parse_mode. "
+            "Bạn CÓ THỂ dùng **in đậm**, *in nghiêng*, ~~gạch ngang~~, danh sách •, và `{màu}nội dung{/màu}`. "
+            "TUYỆT ĐỐI KHÔNG dùng dấu # tiêu đề hay khối code ```, vì hiển thị không đẹp. "
+            "Nếu liệt kê các ý, hãy dùng dấu gạch đầu dòng hoặc dấu chấm tròn •.\n\n"
+            "TƯƠNG TÁC NHÓM: Trong nhóm chat, bạn CHỈ được trả lời khi có người @mention bạn hoặc trả lời (quote) tin nhắn của bạn. "
+            "Khi trả lời, hãy đề cập rõ người đang hỏi bằng tên hiển thị (ví dụ: '@Tên Người Dùng') nếu cần xưng hô hoặc trả lời trực tiếp. "
+            "Zalo Bot Platform KHÔNG cho phép bot gửi mention tương tác thật, vì vậy '@Tên' sẽ hiển thị dạng văn bản, không bấm được. "
             "Trong nhóm chat, các tin nhắn có thể có tiền tố 'Tên_thành_viên: nội dung' để bạn phân biệt người đang nói chuyện.\n\n"
             "TƯ DUY PHẢN BIỆN & CHÍNH XÁC: Khi người dùng đưa ra nhận định hoặc thử thách kiến thức, hãy luôn đối chiếu với sự thật khách quan. "
             "Nếu thông tin từ người dùng là giả thuyết, tin đồn hoặc chưa chính xác, hãy lịch sự đính chính và phân tích khách quan, TUYỆT ĐỐI KHÔNG xu nịnh hay vội vã nhận lỗi về điều mình không sai.\n\n"
@@ -149,14 +155,15 @@ class LLMService:
         knowledge_base: str = "",
         rolling_summary: str = "",
         semantic_context: str = "",
-        image_data: Optional[str] = None
+        image_data: Optional[str] = None,
+        sender_name: str = ""
     ) -> str:
         url = settings.OLLAMA_BASE_URL.rstrip("/") + "/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
         if settings.OLLAMA_API_KEY:
             headers["Authorization"] = f"Bearer {settings.OLLAMA_API_KEY}"
 
-        messages = [{"role": "system", "content": self._build_system_prompt(knowledge_base, rolling_summary, semantic_context)}]
+        messages = [{"role": "system", "content": self._build_system_prompt(knowledge_base, rolling_summary, semantic_context, sender_name)}]
         if history:
             messages.extend(history)
 
@@ -210,7 +217,8 @@ class LLMService:
         knowledge_base: str = "",
         rolling_summary: str = "",
         semantic_context: str = "",
-        image_data: Optional[str] = None
+        image_data: Optional[str] = None,
+        sender_name: str = ""
     ) -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
         contents = []
@@ -230,7 +238,7 @@ class LLMService:
         payload = {
             "contents": contents,
             "systemInstruction": {
-                "parts": [{"text": self._build_system_prompt(knowledge_base, rolling_summary, semantic_context)}]
+                "parts": [{"text": self._build_system_prompt(knowledge_base, rolling_summary, semantic_context, sender_name)}]
             }
         }
         try:
@@ -252,14 +260,15 @@ class LLMService:
         knowledge_base: str = "",
         rolling_summary: str = "",
         semantic_context: str = "",
-        image_data: Optional[str] = None
+        image_data: Optional[str] = None,
+        sender_name: str = ""
     ) -> str:
         url = settings.OPENAI_BASE_URL.rstrip("/") + "/chat/completions"
         headers = {
             "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
             "Content-Type": "application/json"
         }
-        messages = [{"role": "system", "content": self._build_system_prompt(knowledge_base, rolling_summary, semantic_context)}]
+        messages = [{"role": "system", "content": self._build_system_prompt(knowledge_base, rolling_summary, semantic_context, sender_name)}]
         if history:
             messages.extend(history)
 

@@ -15,7 +15,8 @@ class CommandHandler:
             "3️⃣ /summary : Tóm tắt nội dung thảo luận 12 giờ qua\n"
             "4️⃣ /clear : Xóa lịch sử trò chuyện ngắn hạn gần đây\n"
             "5️⃣ /help : Xem lại menu hướng dẫn này\n\n"
-            "👉 Mẹo: Bạn có thể gõ nhanh phím số 2, 3, 4 hoặc đặt câu hỏi bất kỳ để bot giải đáp!"
+            "👉 Trong nhóm chat, hãy @mention bot hoặc trả lời (quote) tin nhắn của bot để bot tự động tham gia.\n"
+            "👉 Trong chat riêng, bạn chỉ cần gửi tin nhắn bất kỳ là bot sẽ trả lời."
         )
         if is_admin:
             menu += (
