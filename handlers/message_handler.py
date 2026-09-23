@@ -276,10 +276,16 @@ class MessageHandler:
         cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
         reply_text = clean_markdown_for_zalo(cleaned_ai_reply)
 
-        # 7. Append transient quota badge if applicable
+        # 7. Detect optional [STICKER_RANDOM] marker from LLM
+        send_random_sticker = False
+        if settings.STICKER_AUTO_SEND and "[STICKER_RANDOM]" in reply_text:
+            reply_text = reply_text.replace("[STICKER_RANDOM]", "").strip()
+            send_random_sticker = True
+
+        # 8. Append transient quota badge if applicable
         final_send_text = f"{reply_text}{quota_badge}" if quota_badge else reply_text
 
-        # 8. Send unified message back to Zalo as rich text (markdown).
+        # 9. Send unified message back to Zalo as rich text (markdown).
         #    Zalo Bot Platform does NOT support reply_to_message_id from bots,
         #    so we no longer send that field.
         zalo_client.send_message(
@@ -288,7 +294,15 @@ class MessageHandler:
             parse_mode="markdown"
         )
 
-        # 9. Save turn to conversation database
+        # 9b. If the LLM requested a random sticker and auto-send is enabled, send it.
+        if send_random_sticker:
+            sticker_item = sticker_service.get_random_sticker()
+            if sticker_item:
+                sticker_id, preview_url = sticker_item
+                logger.info(f"Sending random sticker after reply: {sticker_id}")
+                zalo_client.send_sticker(str(chat_id), sticker_id)
+
+        # 10. Save turn to conversation database
         saved_msg = f"{sender_name}: [Hình ảnh] {combined_cleaned_text}" if image_data else (f"{sender_name}: {combined_cleaned_text}" if sender_name else combined_cleaned_text)
         context_service.save_turn(str(chat_id), saved_msg, reply_text, event_type=event_type)
 

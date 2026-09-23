@@ -64,6 +64,14 @@ class StickerService:
         chosen = random.choice(items)
         return chosen["id"], chosen.get("preview_url", "")
 
+    def get_random_sticker(self) -> Optional[Tuple[str, str]]:
+        """Return a random (sticker_id, preview_url) from the entire catalog."""
+        catalog = self._get_catalog()
+        if not catalog:
+            return None
+        pack_name = random.choice(list(catalog.keys()))
+        return self.get_sticker(pack_name)
+
     def list_catalog(self, full: bool = False) -> str:
         catalog = self._get_catalog()
         total = sum(len(v) for v in catalog.values())
@@ -74,9 +82,11 @@ class StickerService:
             f"• Tổng số bộ sticker: {len(catalog)}",
             f"• Tổng số sticker: {total}",
             "",
-            "👉 Gửi theo tên bộ: /sticker <tên bộ>",
+            "👉 /sticker random : Gửi 1 sticker ngẫu nhiên",
+            "👉 /sticker <tên bộ> : Gửi 1 sticker từ bộ đó",
             '   Ví dụ: /sticker Bư Mặt Ngáo',
             '          /sticker "Mimi & Neko 6"',
+            "👉 /sticker list : Xem toàn bộ danh sách bộ sticker",
             "",
             "📦 Danh sách bộ sticker:",
         ]

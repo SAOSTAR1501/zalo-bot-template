@@ -68,7 +68,15 @@ class CommandHandler:
         if text_lower in ["/sticker list", "/sticker all", "sticker list", "sticker all"]:
             return True, sticker_service.list_catalog(full=True)
 
-        # 2d. /sticker <tên bộ>: send a random sticker from that pack
+        # 2d. /sticker random: send a random sticker
+        if text_lower in ["/sticker random", "sticker random"]:
+            item = sticker_service.get_random_sticker()
+            if item:
+                sticker_id, preview_url = item
+                return True, f"[STICKER:{sticker_id}|{preview_url}]"
+            return True, "❓ Kho sticker đang trống."
+
+        # 2e. /sticker <tên bộ>: send a random sticker from that pack
         sticker_match = re.match(r"^(?:/sticker|sticker)\s+(.+)$", cleaned_text, re.IGNORECASE)
         if sticker_match:
             requested = sticker_match.group(1).strip()
