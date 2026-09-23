@@ -205,7 +205,7 @@ class ZaloBotClient:
             return {"ok": False, "error": str(e)}
 
     def send_chat_action(self, chat_id: str, action: str = "typing") -> Dict[str, Any]:
-        """Display a temporary chat action (typing, upload_photo)."""
+        """Display a temporary chat action. Zalo only supports 'typing' for bots right now."""
         url = self._url("sendChatAction")
         payload = {
             "chat_id": str(chat_id),
