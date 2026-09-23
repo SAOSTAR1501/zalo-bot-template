@@ -135,10 +135,9 @@ class MessageHandler:
                 sticker_marker = re.match(r"^\[STICKER:(https?://[^\]]+)\]$", cmd_reply.strip())
                 if sticker_marker:
                     sticker_url = sticker_marker.group(1)
-                    sticker_result = zalo_client.send_sticker(str(chat_id), sticker_url)
-                    if not sticker_result.get("ok"):
-                        logger.warning(f"sendSticker command failed ({sticker_result}), falling back to sendPhoto")
-                        zalo_client.send_photo(str(chat_id), sticker_url, caption="")
+                    # Send sticker assets via sendPhoto: the URLs from Zalo Sticker Store
+                    # are plain PNG previews and render more reliably as photos.
+                    zalo_client.send_photo(str(chat_id), sticker_url, caption="")
                 else:
                     zalo_client.send_message(
                         chat_id=str(chat_id),
@@ -291,11 +290,9 @@ class MessageHandler:
             sticker_url = sticker_service.pick_sticker_for_text(reply_text)
             if sticker_url:
                 logger.info(f"Sending matching sticker for reply: {sticker_url[:80]}...")
-                sticker_result = zalo_client.send_sticker(str(chat_id), sticker_url)
-                # Fallback to sendPhoto if Zalo rejects the sticker URL.
-                if not sticker_result.get("ok"):
-                    logger.warning(f"sendSticker failed ({sticker_result}), falling back to sendPhoto")
-                    zalo_client.send_photo(str(chat_id), sticker_url, caption="")
+                # Use sendPhoto for sticker assets; Zalo Sticker Store URLs are plain
+                # PNG/GIF previews that render reliably as photos.
+                zalo_client.send_photo(str(chat_id), sticker_url, caption="")
 
         # 9. Save turn to conversation database
         saved_msg = f"{sender_name}: [Hình ảnh] {combined_cleaned_text}" if image_data else (f"{sender_name}: {combined_cleaned_text}" if sender_name else combined_cleaned_text)
