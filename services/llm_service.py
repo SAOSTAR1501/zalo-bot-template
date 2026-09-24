@@ -1,4 +1,5 @@
 import logging
+import re
 import subprocess
 import requests
 from requests.adapters import HTTPAdapter
