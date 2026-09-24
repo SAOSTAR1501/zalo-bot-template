@@ -112,6 +112,72 @@ class LLMService:
             logger.error(f"Error calling LLM for summarization: {e}")
         return previous_summary or chunk_text[:200]
 
+    def needs_web_search(self, query: str) -> bool:
+        """
+        Ask the LLM whether the user query requires up-to-date/web information.
+        Returns True only if the model explicitly answers YES.
+        """
+        classification_prompt = (
+            "Bạn là bộ lọc nhanh. Chỉ trả lời YES hoặc NO, không giải thích.\n"
+            "Câu hỏi có cần thông tin thời gian thực hoặc dữ liệu web (thời tiết, giá cả, tin tức, lịch thi đấu, ngày giờ hiện tại, kết quả bóng đá...) không?\n\n"
+            f"Câu hỏi: {query}\n\nTrả lời (YES/NO):"
+        )
+        try:
+            if self.provider == "ollama" and (settings.OLLAMA_API_KEY or "localhost" in settings.OLLAMA_BASE_URL or "127.0.0.1" in settings.OLLAMA_BASE_URL):
+                url = settings.OLLAMA_BASE_URL.rstrip("/") + "/v1/chat/completions"
+                headers = {"Content-Type": "application/json"}
+                if settings.OLLAMA_API_KEY:
+                    headers["Authorization"] = f"Bearer {settings.OLLAMA_API_KEY}"
+                payload = {
+                    "model": settings.OLLAMA_MODEL,
+                    "messages": [
+                        {"role": "system", "content": "Chỉ trả lời YES hoặc NO. Không giải thích."},
+                        {"role": "user", "content": classification_prompt}
+                    ],
+                    "max_tokens": 5,
+                    "temperature": 0.0,
+                }
+                r = self.session.post(url, json=payload, headers=headers, timeout=(5, 10))
+                data = r.json()
+                if "choices" in data and len(data["choices"]) > 0:
+                    answer = data["choices"][0]["message"]["content"].strip().upper()
+                    logger.info(f"needs_web_search classification for '{query[:60]}...': {answer}")
+                    return answer.startswith("YES")
+            elif self.provider == "gemini" and settings.GEMINI_API_KEY:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
+                payload = {
+                    "contents": [
+                        {"role": "user", "parts": [{"text": classification_prompt}]}
+                    ]
+                }
+                r = self.session.post(url, json=payload, timeout=(5, 10))
+                data = r.json()
+                if "candidates" in data and len(data["candidates"]) > 0:
+                    answer = data["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
+                    logger.info(f"needs_web_search classification: {answer}")
+                    return answer.startswith("YES")
+            elif self.provider in ["openai", "deepseek"] and settings.OPENAI_API_KEY:
+                url = settings.OPENAI_BASE_URL.rstrip("/") + "/chat/completions"
+                headers = {"Authorization": f"Bearer {settings.OPENAI_API_KEY}", "Content-Type": "application/json"}
+                payload = {
+                    "model": settings.OPENAI_MODEL,
+                    "messages": [
+                        {"role": "system", "content": "Answer only YES or NO."},
+                        {"role": "user", "content": classification_prompt}
+                    ],
+                    "max_tokens": 5,
+                    "temperature": 0.0,
+                }
+                r = self.session.post(url, json=payload, headers=headers, timeout=(5, 10))
+                data = r.json()
+                if "choices" in data and len(data["choices"]) > 0:
+                    answer = data["choices"][0]["message"]["content"].strip().upper()
+                    logger.info(f"needs_web_search classification: {answer}")
+                    return answer.startswith("YES")
+        except Exception as e:
+            logger.error(f"Error in needs_web_search classification: {e}")
+        return False
+
     def _build_system_prompt(self, knowledge_base: str = "", rolling_summary: str = "", semantic_context: str = "", sender_name: str = "") -> str:
         prompt = (
             "Bạn là Bot Sao Assistant trên Zalo, trợ lý AI thông minh và tận tâm của Admin Mai Công Sao.\n"
@@ -137,6 +203,11 @@ class LLMService:
             "Nếu câu trả lời của bạn phù hợp đi kèm một sticker vui/lively (ví dụ chào hỏi, cảm ơn, chúc mừng, hoặc khi muốn thêm cảm xúc), "
             "bạn CÓ THỂ kết thúc tin nhắn bằng marker riêng [STICKER_RANDOM]. "
             "Đặt marker này trên dòng riêng, sau phần text. KHÔNG dùng nếu nội dung nghiêm túc, kỹ thuật, hoặc không cần thiết.\n\n"
+            "--- TÌM KIẾM WEB KHI CẦN THÔNG TIN THỜI GIAN THỰC ---\n"
+            "Nếu câu hỏi của người dùng cần dữ liệu thời gian thực mà bạn không chắc chắn (ví dụ: thời tiết, giá cả, tin tức mới, lịch thi đấu, ngày giờ hiện tại, kết quả bóng đá, chứng khoán...), "
+            "bạn HÃY trả lời ngắn gọn và KẾT THÚC bằng marker `[WEB_SEARCH:truy vấn cụ thể bằng tiếng Việt]`. "
+            "Ví dụ: 'Tôi sẽ tra thông tin cho bạn. [WEB_SEARCH:Thời tiết Hà Nội hôm nay]' hoặc 'Để xác nhận chính xác: [WEB_SEARCH:giá vàng hôm nay]'. "
+            "KHÔNG dùng marker này cho câu hỏi kiến thức tổng quát, toán học, lịch sử, hoặc những gì bạn đã biết chắc chắn.\n\n"
             "👑 LỆNH DÀNH RIÊNG CHO ADMIN (MAI CÔNG SAO):\n"
             "• /accept <user_id> [gói]: Duyệt hoặc đổi gói cho người dùng.\n"
             "  - Các gói hỗ trợ: 10, 20, 50, 100 (cấp số tin), homnay (24h), tuannay (7 ngày), thangnay (30 ngày), vinhvien (vĩnh viễn), reset (về 10 tin mặc định).\n"

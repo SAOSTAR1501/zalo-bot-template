@@ -382,14 +382,22 @@ class MessageHandler:
         cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
         reply_text = clean_markdown_for_zalo(cleaned_ai_reply)
 
-        # 7. Web search for real-time information when the LLM admits it lacks data.
-        #    We look for common refusal phrases and trigger DuckDuckGo search.
-        if self._should_trigger_web_search(combined_cleaned_text, reply_text):
+        # 7. Web search marker handling. The LLM may decide a real-time query needs
+        #    web data and emit [WEB_SEARCH:<query>]. Parse it, perform DuckDuckGo
+        #    search, then synthesize a final answer.  Keep a minimal hard-code
+        #    fallback only when the model refuses but omits the marker.
+        web_search_query = self._extract_web_search_marker(reply_text)
+        if not web_search_query and self._should_trigger_web_search(combined_cleaned_text, reply_text):
+            web_search_query = combined_cleaned_text
+
+        if web_search_query:
             try:
-                search_results = web_search_service.search(combined_cleaned_text, max_results=5)
+                search_results = web_search_service.search(web_search_query, max_results=5)
                 if search_results:
                     web_search_context = self._format_search_results(search_results)
-                    logger.info(f"Injecting web search context ({len(search_results)} results)")
+                    logger.info(f"Injecting web search context ({len(search_results)} results) for query: {web_search_query}")
+                    # Strip the marker from the visible reply before synthesizing.
+                    reply_text = self._strip_web_search_marker(reply_text)
                     raw_ai_reply = llm_service.generate_reply(
                         prompt=(
                             "Dựa vào kết quả tìm kiếm web dưới đây, hãy trả lời ngắn gọn cho câu hỏi:\n\n"
@@ -523,23 +531,43 @@ class MessageHandler:
             "kiến thức có hạn",
             "không được kết nối internet",
             "không có internet",
+            "không có thông tin thời gian thực",
+            "không cung cấp dữ liệu thời gian hiện tại",
+            "không thể xác định chính xác",
         ]
         if any(p in reply_lower for p in refusal_phrases):
             return True
 
         # Keywords suggesting the user wants fresh/external facts.
+        # This is a safety net for when the LLM refuses but omits the
+        # [WEB_SEARCH:...] marker.
         realtime_keywords = [
             "thời tiết", "dự báo thời tiết",
             "tỷ giá", "giá vàng", "giá xăng", "giá bitcoin", "giá coin",
             "lịch thi đấu", "kết quả bóng đá", "tỷ số",
             "tin tức", "tin mới", "tin nóng", "sự kiện",
-            "hôm nay", "ngày mai", "hiện tại", "bây giờ", "mới nhất",
             "chứng khoán", "thị trường", "ngoại tệ", "lãi suất",
+            "mấy giờ", "ngày nào", "tháng nào", "năm nào", "thời gian hiện tại",
+            "ngày hôm nay", "hôm nay là",
         ]
         if any(k in query_lower for k in realtime_keywords):
             return True
 
         return False
+
+    @staticmethod
+    def _extract_web_search_marker(reply: str) -> Optional[str]:
+        """Parse the [WEB_SEARCH:query] marker emitted by the LLM."""
+        match = re.search(r"\[WEB_SEARCH:([^\]]+)\]", reply)
+        if match:
+            query = match.group(1).strip()
+            return query if query else None
+        return None
+
+    @staticmethod
+    def _strip_web_search_marker(reply: str) -> str:
+        """Remove the [WEB_SEARCH:query] marker from the visible reply."""
+        return re.sub(r"\s*\[WEB_SEARCH:[^\]]+\]", "", reply).strip()
 
     @staticmethod
     def _format_search_results(results: list) -> str:
