@@ -381,6 +381,33 @@ class MessageHandler:
         cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
         reply_text = clean_markdown_for_zalo(cleaned_ai_reply)
 
+        # 7. Web search for real-time information when the LLM admits it lacks data.
+        #    We look for common refusal phrases and trigger DuckDuckGo search.
+        if self._should_trigger_web_search(combined_cleaned_text, reply_text):
+            try:
+                search_results = web_search_service.search(combined_cleaned_text, max_results=5)
+                if search_results:
+                    web_search_context = self._format_search_results(search_results)
+                    logger.info(f"Injecting web search context ({len(search_results)} results)")
+                    raw_ai_reply = llm_service.generate_reply(
+                        prompt=(
+                            "Dựa vào kết quả tìm kiếm web dưới đây, hãy trả lời ngắn gọn cho câu hỏi:\n\n"
+                            f"Câu hỏi: {combined_cleaned_text}\n\n"
+                            f"{web_search_context}\n\n"
+                            "Trả lời bằng tiếng Việt, ngắn gọn, chỉ dùng thông tin từ kết quả tìm kiếm."
+                        ),
+                        history=[],
+                        knowledge_base="",
+                        rolling_summary="",
+                        semantic_context="",
+                        image_data=None,
+                        sender_name=sender_name,
+                    )
+                    cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
+                    reply_text = clean_markdown_for_zalo(cleaned_ai_reply)
+            except Exception as e:
+                logger.exception("Web search integration failed")
+
         # 7. Detect optional markers from LLM / command handler
         send_random_sticker = False
         gen_image_description = None
@@ -456,6 +483,63 @@ class MessageHandler:
 
         # 10. Check & rollup summary in background (Episodic Memory compaction)
         context_service.trigger_async_summary_update(str(chat_id))
+
+    @staticmethod
+    def _should_trigger_web_search(query: str, reply: str) -> bool:
+        """
+        Decide whether the bot should perform a web search based on the user's
+        question and the LLM's reply.  We search when the LLM appears to lack
+        current/real-world knowledge or refuses to answer.
+        """
+        query_lower = query.lower()
+        reply_lower = reply.lower()
+
+        # Direct signals that the LLM cannot answer.
+        refusal_phrases = [
+            "không có chiêu search web",
+            "không có khả năng",
+            "không thể truy cập",
+            "không có thông tin",
+            "không có dữ liệu",
+            "không biết",
+            "tôi không biết",
+            "em không biết",
+            "mình không biết",
+            "tôi không chắc",
+            "em không chắc",
+            "tự lên google",
+            "tự lên trang web",
+            "kiến thức đến ngày",
+            "kiến thức có hạn",
+            "không được kết nối internet",
+            "không có internet",
+        ]
+        if any(p in reply_lower for p in refusal_phrases):
+            return True
+
+        # Keywords suggesting the user wants fresh/external facts.
+        realtime_keywords = [
+            "thời tiết", "dự báo thời tiết",
+            "tỷ giá", "giá vàng", "giá xăng", "giá bitcoin", "giá coin",
+            "lịch thi đấu", "kết quả bóng đá", "tỷ số",
+            "tin tức", "tin mới", "tin nóng", "sự kiện",
+            "hôm nay", "ngày mai", "hiện tại", "bây giờ", "mới nhất",
+            "chứng khoán", "thị trường", "ngoại tệ", "lãi suất",
+        ]
+        if any(k in query_lower for k in realtime_keywords):
+            return True
+
+        return False
+
+    @staticmethod
+    def _format_search_results(results: list) -> str:
+        """Format DuckDuckGo results into a concise context string."""
+        lines = ["Kết quả tìm kiếm web:"]
+        for idx, r in enumerate(results, 1):
+            title = r.get("title", "")
+            snippet = r.get("snippet", "")
+            lines.append(f"{idx}. {title}: {snippet}")
+        return "\n".join(lines)
 
 
 message_handler = MessageHandler()
