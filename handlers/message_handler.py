@@ -403,7 +403,8 @@ class MessageHandler:
                             "Dựa vào kết quả tìm kiếm web dưới đây, hãy trả lời ngắn gọn cho câu hỏi:\n\n"
                             f"Câu hỏi: {combined_cleaned_text}\n\n"
                             f"{web_search_context}\n\n"
-                            "Trả lời bằng tiếng Việt, ngắn gọn, chỉ dùng thông tin từ kết quả tìm kiếm."
+                            "Trả lời bằng tiếng Việt, ngắn gọn, chỉ dùng thông tin từ kết quả tìm kiếm. "
+                            "TUYỆT ĐỐI KHÔNG dùng marker [WEB_SEARCH:...] trong câu trả lời cuối cùng."
                         ),
                         history=[],
                         knowledge_base="",
@@ -414,6 +415,8 @@ class MessageHandler:
                     )
                     cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
                     synthesized_reply = clean_markdown_for_zalo(cleaned_ai_reply)
+                    # Safety strip in case the model still emits the marker.
+                    synthesized_reply = self._strip_web_search_marker(synthesized_reply)
                     logger.info(f"Synthesized search reply length: {len(synthesized_reply)}")
                     # Fallback to the first result snippet if the local model returns empty.
                     if not synthesized_reply.strip():
