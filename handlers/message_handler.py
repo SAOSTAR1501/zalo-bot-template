@@ -405,7 +405,16 @@ class MessageHandler:
                         sender_name=sender_name,
                     )
                     cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
-                    reply_text = clean_markdown_for_zalo(cleaned_ai_reply)
+                    synthesized_reply = clean_markdown_for_zalo(cleaned_ai_reply)
+                    logger.info(f"Synthesized search reply length: {len(synthesized_reply)}")
+                    # Fallback to the first result snippet if the local model returns empty.
+                    if not synthesized_reply.strip():
+                        first = search_results[0]
+                        synthesized_reply = (
+                            f"Theo {first.get('title', '')}: {first.get('snippet', '')}\n"
+                            f"Chi tiết: {first.get('link', '')}"
+                        ).strip()
+                    reply_text = synthesized_reply
             except Exception as e:
                 logger.exception("Web search integration failed")
 
