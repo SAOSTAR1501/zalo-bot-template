@@ -392,40 +392,51 @@ class MessageHandler:
 
         if web_search_query:
             try:
-                search_results = web_search_service.search(web_search_query, max_results=5)
-                if search_results:
-                    web_search_context = self._format_search_results(search_results)
-                    logger.info(f"Injecting web search context ({len(search_results)} results) for query: {web_search_query}")
-                    # Strip the marker from the visible reply before synthesizing.
+                # Primary path: use agy CLI with built-in web search for a direct answer.
+                agy_answer = web_search_service.answer_with_agy(web_search_query)
+                if agy_answer:
+                    logger.info(f"Using agy direct answer ({len(agy_answer)} chars)")
+                    reply_text = clean_markdown_for_zalo(strip_quota_badges(agy_answer))
                     reply_text = self._strip_web_search_marker(reply_text)
-                    raw_ai_reply = llm_service.generate_reply(
-                        prompt=(
-                            "Dựa vào kết quả tìm kiếm web dưới đây, hãy trả lời ngắn gọn cho câu hỏi:\n\n"
-                            f"Câu hỏi: {combined_cleaned_text}\n\n"
-                            f"{web_search_context}\n\n"
-                            "Trả lời bằng tiếng Việt, ngắn gọn, chỉ dùng thông tin từ kết quả tìm kiếm. "
-                            "TUYỆT ĐỐI KHÔNG dùng marker [WEB_SEARCH:...] trong câu trả lời cuối cùng."
-                        ),
-                        history=[],
-                        knowledge_base="",
-                        rolling_summary="",
-                        semantic_context="",
-                        image_data=None,
-                        sender_name=sender_name,
+                else:
+                    # Fallback: DuckDuckGo scraping + local LLM synthesis.
+                    search_results = web_search_service.search_with_content(
+                        web_search_query, max_results=5, fetch_top_n=2, max_chars_per_page=2000
                     )
-                    cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
-                    synthesized_reply = clean_markdown_for_zalo(cleaned_ai_reply)
-                    # Safety strip in case the model still emits the marker.
-                    synthesized_reply = self._strip_web_search_marker(synthesized_reply)
-                    logger.info(f"Synthesized search reply length: {len(synthesized_reply)}")
-                    # Fallback to the first result snippet if the local model returns empty.
-                    if not synthesized_reply.strip():
-                        first = search_results[0]
-                        synthesized_reply = (
-                            f"Theo {first.get('title', '')}: {first.get('snippet', '')}\n"
-                            f"Chi tiết: {first.get('link', '')}"
-                        ).strip()
-                    reply_text = synthesized_reply
+                    if search_results:
+                        web_search_context = self._format_search_results(search_results)
+                        logger.info(f"Injecting web search context ({len(search_results)} results) for query: {web_search_query}")
+                        # Strip the marker from the visible reply before synthesizing.
+                        reply_text = self._strip_web_search_marker(reply_text)
+                        raw_ai_reply = llm_service.generate_reply(
+                            prompt=(
+                                "Dựa vào kết quả tìm kiếm web (bao gồm nội dung trích xuất từ các trang đích) dưới đây, "
+                                "hãy trả lời ngắn gọn cho câu hỏi:\n\n"
+                                f"Câu hỏi: {combined_cleaned_text}\n\n"
+                                f"{web_search_context}\n\n"
+                                "Trả lời bằng tiếng Việt, ngắn gọn, chỉ dùng thông tin từ kết quả tìm kiếm. "
+                                "TUYỆT ĐỐI KHÔNG dùng marker [WEB_SEARCH:...] trong câu trả lời cuối cùng."
+                            ),
+                            history=[],
+                            knowledge_base="",
+                            rolling_summary="",
+                            semantic_context="",
+                            image_data=None,
+                            sender_name=sender_name,
+                        )
+                        cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
+                        synthesized_reply = clean_markdown_for_zalo(cleaned_ai_reply)
+                        # Safety strip in case the model still emits the marker.
+                        synthesized_reply = self._strip_web_search_marker(synthesized_reply)
+                        logger.info(f"Synthesized search reply length: {len(synthesized_reply)}")
+                        # Fallback to the first result snippet if the local model returns empty.
+                        if not synthesized_reply.strip():
+                            first = search_results[0]
+                            synthesized_reply = (
+                                f"Theo {first.get('title', '')}: {first.get('snippet', '')}\n"
+                                f"Chi tiết: {first.get('link', '')}"
+                            ).strip()
+                        reply_text = synthesized_reply
             except Exception as e:
                 logger.exception("Web search integration failed")
 

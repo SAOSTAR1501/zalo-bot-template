@@ -1,5 +1,8 @@
+import json
 import logging
 import re
+import shutil
+import subprocess
 import time
 import urllib.parse
 from typing import List, Dict, Optional
@@ -11,8 +14,13 @@ logger = logging.getLogger(__name__)
 class WebSearchService:
     """
     Free web search using DuckDuckGo HTML interface (no API key required).
-    Returns a list of results with title, link, and snippet.
+    Optionally uses the local `agy` CLI (which has built-in web search tooling)
+    when available; falls back to DuckDuckGo scraping if agy fails or is missing.
+    Returns a list of results with title, link, snippet and optional content.
     """
+
+    AGY_MODEL = "Gemini 3.7 Flash (Medium)"
+    AGY_TIMEOUT_SECONDS = 60
 
     def __init__(self):
         self.session = requests.Session()
@@ -35,12 +43,149 @@ class WebSearchService:
         region: str = "vn-vi",
     ) -> List[Dict[str, str]]:
         """
-        Search DuckDuckGo and return top results.
+        Search using agy CLI if available, otherwise fall back to DuckDuckGo.
 
         Each result is a dict: {"title": str, "link": str, "snippet": str}
         """
         if not query or not query.strip():
             return []
+
+        agy_results = self._search_with_agy(query, max_results=max_results)
+        if agy_results:
+            return agy_results
+
+        return self._search_with_duckduckgo(query, max_results=max_results, region=region)
+
+    def _search_with_agy(
+        self,
+        query: str,
+        max_results: int = 5,
+    ) -> List[Dict[str, str]]:
+        """
+        Use the agy CLI web-search capability.  We ask agy to answer the query
+        using web search and to return a JSON array of sources it used.
+
+        Returns [] if agy is not installed, times out, or emits no usable JSON.
+        """
+        agy_path = shutil.which("agy") or "/home/devops/.local/bin/agy"
+        if not agy_path or not shutil.which(agy_path):
+            return []
+
+        prompt = (
+            "Hãy tìm kiếm web và trả lời câu hỏi sau bằng tiếng Việt. "
+            "Sau câu trả lời, hãy liệt kê các nguồn web bạn đã dùng dưới dạng JSON array, "
+            "mỗi nguồn có title, link, snippet.\n\n"
+            f"Câu hỏi: {query}\n\n"
+            "Định dạng yêu cầu:\n"
+            "<câu trả lời ngắn gọn>\n\n"
+            "SOURCES:\n"
+            '[{"title": "...", "link": "...", "snippet": "..."}, ...]'
+        )
+
+        try:
+            result = subprocess.run(
+                [
+                    agy_path,
+                    "--model", self.AGY_MODEL,
+                    "--print-timeout", str(self.AGY_TIMEOUT_SECONDS),
+                    "-p", prompt,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=self.AGY_TIMEOUT_SECONDS + 5,
+            )
+            output = result.stdout + "\n" + result.stderr
+            logger.info(f"agy search output length: {len(output)}")
+            return self._parse_agy_output(output, max_results=max_results)
+        except Exception as e:
+            logger.warning(f"agy search failed: {e}")
+            return []
+
+    def answer_with_agy(self, query: str) -> str:
+        """
+        Use the local `agy` CLI to answer the query directly.
+        agy has built-in web-search tooling, so this usually returns
+        current, real-world data without manual scraping.
+
+        Returns empty string if agy is missing, times out, or errors out.
+        """
+        agy_path = shutil.which("agy") or "/home/devops/.local/bin/agy"
+        if not agy_path or not shutil.which(agy_path):
+            logger.info("agy CLI not found; skipping direct answer")
+            return ""
+
+        prompt = (
+            "Bạn là trợ lý AI trên Zalo. Hãy tìm kiếm web và trả lời câu hỏi sau "
+            "một cách ngắn gọn, chính xác, bằng tiếng Việt. "
+            "Nếu có số liệu cụ thể (giá cả, nhiệt độ, tỷ số, ngày giờ...), hãy đưa ra con số. "
+            "KHÔNG kết thúc bằng marker nào.\n\n"
+            f"Câu hỏi: {query}"
+        )
+
+        try:
+            logger.info(f"Calling agy for direct answer: {query[:80]}")
+            result = subprocess.run(
+                [
+                    agy_path,
+                    "--model", self.AGY_MODEL,
+                    "--print-timeout", str(self.AGY_TIMEOUT_SECONDS),
+                    "-p", prompt,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=self.AGY_TIMEOUT_SECONDS + 10,
+            )
+            output = result.stdout.strip()
+            if not output and result.stderr:
+                logger.warning(f"agy stderr: {result.stderr[:500]}")
+                return ""
+            logger.info(f"agy direct answer length: {len(output)}")
+            return output
+        except Exception as e:
+            logger.warning(f"agy direct answer failed: {e}")
+            return ""
+
+    def _parse_agy_output(self, output: str, max_results: int = 5) -> List[Dict[str, str]]:
+        """Extract the SOURCES JSON array from agy output (legacy parsing)."""
+        # Find the JSON array after SOURCES:
+        marker_match = re.search(r"SOURCES:\s*(\[.*?\])", output, re.DOTALL)
+        if not marker_match:
+            # Try the last JSON array in the output
+            arrays = re.findall(r"\[.*?\]", output, re.DOTALL)
+            if not arrays:
+                return []
+            candidate = arrays[-1]
+        else:
+            candidate = marker_match.group(1)
+
+        try:
+            data = json.loads(candidate)
+            if not isinstance(data, list):
+                return []
+            results = []
+            for item in data[:max_results]:
+                if isinstance(item, dict) and item.get("link"):
+                    results.append({
+                        "title": str(item.get("title", "")),
+                        "link": str(item.get("link", "")),
+                        "snippet": str(item.get("snippet", "")),
+                    })
+            if results:
+                logger.info(f"agy returned {len(results)} sources")
+                return results
+        except Exception as e:
+            logger.warning(f"Failed to parse agy JSON output: {e}")
+        return []
+
+    def _search_with_duckduckgo(
+        self,
+        query: str,
+        max_results: int = 5,
+        region: str = "vn-vi",
+    ) -> List[Dict[str, str]]:
+        """
+        Search DuckDuckGo HTML interface and return top results.
+        """
 
         try:
             encoded = urllib.parse.quote_plus(query)
@@ -111,6 +256,35 @@ class WebSearchService:
         except Exception as e:
             logger.warning(f"Failed to fetch {url}: {e}")
             return ""
+
+    def search_with_content(
+        self,
+        query: str,
+        max_results: int = 5,
+        fetch_top_n: int = 2,
+        max_chars_per_page: int = 2000,
+        region: str = "vn-vi",
+    ) -> List[Dict[str, str]]:
+        """
+        Search DuckDuckGo and fetch full text from the top `fetch_top_n` result pages.
+
+        Each result dict now also contains "content" with the extracted page text.
+        """
+        results = self.search(query, max_results=max_results, region=region)
+        if not results:
+            return results
+
+        for idx, result in enumerate(results[:fetch_top_n], 1):
+            link = result.get("link", "")
+            if not link:
+                continue
+            logger.info(f"Fetching page {idx}/{fetch_top_n}: {link[:120]}")
+            content = self.fetch_page_text(link, max_chars=max_chars_per_page)
+            result["content"] = content
+            # Small polite delay between fetches
+            time.sleep(0.3)
+
+        return results
 
 
 web_search_service = WebSearchService()
