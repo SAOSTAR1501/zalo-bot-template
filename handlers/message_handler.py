@@ -146,7 +146,7 @@ class MessageHandler:
 
         # Debug raw mention data to see if Zalo supplies user IDs in mentions
         if is_mention or pseudo_mentions:
-            logger.info(f"DEBUG MENTION: data={json.dumps(data, ensure_ascii=False)[:2000]}")
+            logger.debug(f"Raw mention payload: {json.dumps(data, ensure_ascii=False)[:1000]}")
 
         is_group = str(chat_type).upper() == "GROUP"
 
