@@ -105,7 +105,7 @@ class WebSearchService:
             logger.warning(f"agy search failed: {e}")
             return []
 
-    def answer_with_agy(self, query: str) -> str:
+    def answer_with_agy(self, query: str, sender_name: str = "", rolling_summary: str = "") -> str:
         """
         Use the local `agy` CLI to answer the query directly.
         agy has built-in web-search tooling, so this usually returns
@@ -118,11 +118,27 @@ class WebSearchService:
             logger.info("agy CLI not found; skipping direct answer")
             return ""
 
+        # Preserve the bot's persona and the way the admin should be addressed.
+        addressing = ""
+        if "Mai Công Sao" in sender_name or "Sao" in sender_name:
+            addressing = (
+                "Người đang hỏi là Admin Mai Công Sao (đại ca). "
+                "Hãy xưng hô thân mật, gọi họ là đại ca, không khách sáo.\n"
+            )
+        else:
+            addressing = f"Người đang hỏi: {sender_name}\n" if sender_name else ""
+
+        context_block = ""
+        if rolling_summary:
+            context_block = f"Bối cảnh hội thoại trước đó: {rolling_summary}\n\n"
+
         prompt = (
-            "Bạn là trợ lý AI trên Zalo. Hãy tìm kiếm web và trả lời câu hỏi sau "
-            "một cách ngắn gọn, chính xác, bằng tiếng Việt. "
+            "Bạn là Bot Sao Assistant trên Zalo, trợ lý AI của Admin Mai Công Sao. "
+            "Hãy tìm kiếm web và trả lời câu hỏi sau một cách ngắn gọn, chính xác, bằng tiếng Việt. "
             "Nếu có số liệu cụ thể (giá cả, nhiệt độ, tỷ số, ngày giờ...), hãy đưa ra con số. "
             "KHÔNG kết thúc bằng marker nào.\n\n"
+            f"{addressing}"
+            f"{context_block}"
             f"Câu hỏi: {query}"
         )
 
@@ -149,7 +165,7 @@ class WebSearchService:
             logger.warning(f"agy direct answer failed: {e}")
             return ""
 
-    def analyze_image_with_agy(self, image_data: str, user_prompt: str = "") -> str:
+    def analyze_image_with_agy(self, image_data: str, user_prompt: str = "", sender_name: str = "", rolling_summary: str = "") -> str:
         """
         Analyze an image with the agy CLI. agy reads the image via the
         `@/path/to/file` syntax that the underlying Gemini CLI supports.
@@ -157,6 +173,8 @@ class WebSearchService:
         Args:
             image_data: data URL (data:image/jpeg;base64,...) or http(s) URL.
             user_prompt: user's caption/question about the image.
+            sender_name: display name of the current user.
+            rolling_summary: short rolling summary of the recent conversation.
 
         Returns empty string if agy fails or the file cannot be written.
         """
@@ -172,9 +190,26 @@ class WebSearchService:
                 return ""
 
             question = user_prompt.strip() or "Hãy xem và phân tích/mô tả chi tiết bức ảnh này giúp tôi."
+
+            addressing = ""
+            if "Mai Công Sao" in sender_name or "Sao" in sender_name:
+                addressing = (
+                    "Người gửi là Admin Mai Công Sao (đại ca). "
+                    "Hãy xưng hô thân mật, gọi họ là đại ca, không khách sáo.\n"
+                )
+            else:
+                addressing = f"Người gửi: {sender_name}\n" if sender_name else ""
+
+            context_block = ""
+            if rolling_summary:
+                context_block = f"Bối cảnh hội thoại trước đó: {rolling_summary}\n\n"
+
             prompt = (
-                "Bạn là trợ lý AI trên Zalo. Hãy phân tích bức ảnh được đính kèm và trả lời "
-                "yêu cầu bên dưới bằng tiếng Việt, ngắn gọn. KHÔNG kết thúc bằng marker nào.\n\n"
+                "Bạn là Bot Sao Assistant trên Zalo, trợ lý AI của Admin Mai Công Sao. "
+                "Hãy phân tích bức ảnh được đính kèm và trả lời yêu cầu bên dưới bằng tiếng Việt, ngắn gọn. "
+                "KHÔNG kết thúc bằng marker nào.\n\n"
+                f"{addressing}"
+                f"{context_block}"
                 f"Ảnh: @{tmp_path}\n\n"
                 f"Yêu cầu của người dùng: {question}"
             )

@@ -373,7 +373,7 @@ class MessageHandler:
         raw_ai_reply = ""
         if image_data:
             raw_ai_reply = web_search_service.analyze_image_with_agy(
-                image_data, user_prompt=combined_cleaned_text
+                image_data, user_prompt=combined_cleaned_text, sender_name=sender_name, rolling_summary=rolling_summary
             )
             if raw_ai_reply:
                 logger.info("Image analyzed by agy CLI")
@@ -405,7 +405,9 @@ class MessageHandler:
         if web_search_query:
             try:
                 # Primary path: use agy CLI with built-in web search for a direct answer.
-                agy_answer = web_search_service.answer_with_agy(web_search_query)
+                agy_answer = web_search_service.answer_with_agy(
+                    web_search_query, sender_name=sender_name, rolling_summary=rolling_summary
+                )
                 if agy_answer:
                     logger.info(f"Using agy direct answer ({len(agy_answer)} chars)")
                     reply_text = clean_markdown_for_zalo(strip_quota_badges(agy_answer))
