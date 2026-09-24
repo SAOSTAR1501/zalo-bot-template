@@ -365,19 +365,31 @@ class MessageHandler:
         if latest_event.get("pseudo_mentions"):
             prompt_with_sender += f"\n[Các người dùng được đề cập trong câu hỏi: {', '.join(latest_event['pseudo_mentions'])}]"
 
-        # 6. Send typing action while LLM is generating the reply
+        # 6. Send typing action while the reply is being generated
         zalo_client.send_chat_action(str(chat_id), "typing")
 
-        # 7. Generate AI reply with Tri-Tier Context + Multimodal Vision
-        raw_ai_reply = llm_service.generate_reply(
-            prompt=prompt_with_sender,
-            history=history,
-            knowledge_base=knowledge_base,
-            rolling_summary=rolling_summary,
-            semantic_context=semantic_context,
-            image_data=image_data,
-            sender_name=sender_name
-        )
+        # 7. Image messages go to agy CLI first (it has strong vision tooling).
+        #    If agy is unavailable/fails, fall back to the configured vision LLM.
+        raw_ai_reply = ""
+        if image_data:
+            raw_ai_reply = web_search_service.analyze_image_with_agy(
+                image_data, user_prompt=combined_cleaned_text
+            )
+            if raw_ai_reply:
+                logger.info("Image analyzed by agy CLI")
+            else:
+                logger.info("agy image analysis unavailable, falling back to LLM vision")
+
+        if not raw_ai_reply:
+            raw_ai_reply = llm_service.generate_reply(
+                prompt=prompt_with_sender,
+                history=history,
+                knowledge_base=knowledge_base,
+                rolling_summary=rolling_summary,
+                semantic_context=semantic_context,
+                image_data=image_data,
+                sender_name=sender_name
+            )
 
         cleaned_ai_reply = strip_quota_badges(raw_ai_reply)
         reply_text = clean_markdown_for_zalo(cleaned_ai_reply)

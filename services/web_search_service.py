@@ -1,8 +1,11 @@
+import base64
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 import urllib.parse
 from typing import List, Dict, Optional
@@ -145,6 +148,94 @@ class WebSearchService:
         except Exception as e:
             logger.warning(f"agy direct answer failed: {e}")
             return ""
+
+    def analyze_image_with_agy(self, image_data: str, user_prompt: str = "") -> str:
+        """
+        Analyze an image with the agy CLI. agy reads the image via the
+        `@/path/to/file` syntax that the underlying Gemini CLI supports.
+
+        Args:
+            image_data: data URL (data:image/jpeg;base64,...) or http(s) URL.
+            user_prompt: user's caption/question about the image.
+
+        Returns empty string if agy fails or the file cannot be written.
+        """
+        agy_path = shutil.which("agy") or "/home/devops/.local/bin/agy"
+        if not agy_path or not shutil.which(agy_path):
+            logger.info("agy CLI not found; skipping image analysis")
+            return ""
+
+        tmp_path: Optional[str] = None
+        try:
+            tmp_path = self._save_image_to_temp(image_data)
+            if not tmp_path:
+                return ""
+
+            question = user_prompt.strip() or "Hãy xem và phân tích/mô tả chi tiết bức ảnh này giúp tôi."
+            prompt = (
+                "Bạn là trợ lý AI trên Zalo. Hãy phân tích bức ảnh được đính kèm và trả lời "
+                "yêu cầu bên dưới bằng tiếng Việt, ngắn gọn. KHÔNG kết thúc bằng marker nào.\n\n"
+                f"Ảnh: @{tmp_path}\n\n"
+                f"Yêu cầu của người dùng: {question}"
+            )
+
+            logger.info("Calling agy for image analysis")
+            result = subprocess.run(
+                [
+                    agy_path,
+                    "--model", self.AGY_MODEL,
+                    "--print-timeout", self.AGY_TIMEOUT_DURATION,
+                    "-p", prompt,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=self.AGY_TIMEOUT_SECONDS + 10,
+            )
+            output = result.stdout.strip()
+            if not output and result.stderr:
+                logger.warning(f"agy image stderr: {result.stderr[:500]}")
+                return ""
+            logger.info(f"agy image answer length: {len(output)}")
+            return output
+        except Exception as e:
+            logger.warning(f"agy image analysis failed: {e}")
+            return ""
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+
+    def _save_image_to_temp(self, image_data: str) -> Optional[str]:
+        """Persist the image to a temp file so agy can read it with @path."""
+        try:
+            image_bytes: Optional[bytes] = None
+            suffix = ".jpg"
+            if image_data.startswith("data:"):
+                header, b64 = image_data.split(";base64,", 1)
+                mime = header.replace("data:", "")
+                if "png" in mime:
+                    suffix = ".png"
+                elif "webp" in mime:
+                    suffix = ".webp"
+                image_bytes = base64.b64decode(b64)
+            elif image_data.startswith("http"):
+                resp = self.session.get(image_data, timeout=(10, 20))
+                if resp.status_code != 200:
+                    return None
+                image_bytes = resp.content
+
+            if not image_bytes:
+                return None
+
+            fd, tmp_path = tempfile.mkstemp(prefix="agy_img_", suffix=suffix)
+            with os.fdopen(fd, "wb") as f:
+                f.write(image_bytes)
+            return tmp_path
+        except Exception as e:
+            logger.warning(f"Failed to persist image for agy: {e}")
+            return None
 
     def _parse_agy_output(self, output: str, max_results: int = 5) -> List[Dict[str, str]]:
         """Extract the SOURCES JSON array from agy output (legacy parsing)."""
