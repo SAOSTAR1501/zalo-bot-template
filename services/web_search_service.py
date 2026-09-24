@@ -21,6 +21,7 @@ class WebSearchService:
 
     AGY_MODEL = "Gemini 3.7 Flash (Medium)"
     AGY_TIMEOUT_SECONDS = 60
+    AGY_TIMEOUT_DURATION = "90s"
 
     def __init__(self):
         self.session = requests.Session()
@@ -87,7 +88,7 @@ class WebSearchService:
                 [
                     agy_path,
                     "--model", self.AGY_MODEL,
-                    "--print-timeout", str(self.AGY_TIMEOUT_SECONDS),
+                    "--print-timeout", self.AGY_TIMEOUT_DURATION,
                     "-p", prompt,
                 ],
                 capture_output=True,
@@ -128,7 +129,7 @@ class WebSearchService:
                 [
                     agy_path,
                     "--model", self.AGY_MODEL,
-                    "--print-timeout", str(self.AGY_TIMEOUT_SECONDS),
+                    "--print-timeout", self.AGY_TIMEOUT_DURATION,
                     "-p", prompt,
                 ],
                 capture_output=True,
