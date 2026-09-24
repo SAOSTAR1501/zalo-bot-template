@@ -15,6 +15,7 @@ from services.aggregator_service import aggregator_service
 from services.image_service import image_service
 from services.sticker_service import sticker_service
 from services.image_generation_service import image_generation_service
+from services.web_search_service import web_search_service
 from services.formatter import (
     clean_mention,
     clean_markdown_for_zalo,
