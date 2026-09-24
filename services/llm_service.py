@@ -135,13 +135,14 @@ class LLMService:
                         {"role": "system", "content": "Chỉ trả lời YES hoặc NO. Không giải thích, không suy luận, không thêm bất kỳ ký tự nào khác."},
                         {"role": "user", "content": classification_prompt}
                     ],
-                    "max_tokens": 32,
+                    "max_tokens": 256,
                     "temperature": 0.0,
                 }
                 r = self.session.post(url, json=payload, headers=headers, timeout=(5, 10))
                 data = r.json()
                 if "choices" in data and len(data["choices"]) > 0:
-                    raw = data["choices"][0]["message"]["content"].strip()
+                    msg = data["choices"][0].get("message", {})
+                    raw = (msg.get("content") or msg.get("reasoning") or "").strip()
                     # Some reasoning models emit reasoning content; normalize answer.
                     answer = re.sub(r"[^A-Za-z]", "", raw).upper()
                     logger.info(f"needs_web_search classification for '{query[:60]}...': raw='{raw}' normalized='{answer}'")
