@@ -1,4 +1,5 @@
 import logging
+import json
 import random
 import re
 import threading
@@ -142,6 +143,10 @@ class MessageHandler:
         is_mention = is_mentioning_bot(raw_text, bot_display_name=self._bot_display_name)
         cleaned_text = clean_mention(raw_text, bot_display_name=self._bot_display_name)
         pseudo_mentions = [mention_name_for_zalo(m.strip()) for m in extract_target_mentions(raw_text) if m.strip()]
+
+        # Debug raw mention data to see if Zalo supplies user IDs in mentions
+        if is_mention or pseudo_mentions:
+            logger.info(f"DEBUG MENTION: data={json.dumps(data, ensure_ascii=False)[:2000]}")
 
         is_group = str(chat_type).upper() == "GROUP"
 
