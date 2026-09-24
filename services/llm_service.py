@@ -131,18 +131,20 @@ class LLMService:
                 payload = {
                     "model": settings.OLLAMA_MODEL,
                     "messages": [
-                        {"role": "system", "content": "Chỉ trả lời YES hoặc NO. Không giải thích."},
+                        {"role": "system", "content": "Chỉ trả lời YES hoặc NO. Không giải thích, không suy luận, không thêm bất kỳ ký tự nào khác."},
                         {"role": "user", "content": classification_prompt}
                     ],
-                    "max_tokens": 5,
+                    "max_tokens": 32,
                     "temperature": 0.0,
                 }
                 r = self.session.post(url, json=payload, headers=headers, timeout=(5, 10))
                 data = r.json()
                 if "choices" in data and len(data["choices"]) > 0:
-                    answer = data["choices"][0]["message"]["content"].strip().upper()
-                    logger.info(f"needs_web_search classification for '{query[:60]}...': {answer}")
-                    return answer.startswith("YES")
+                    raw = data["choices"][0]["message"]["content"].strip()
+                    # Some reasoning models emit reasoning content; normalize answer.
+                    answer = re.sub(r"[^A-Za-z]", "", raw).upper()
+                    logger.info(f"needs_web_search classification for '{query[:60]}...': raw='{raw}' normalized='{answer}'")
+                    return "YES" in answer
             elif self.provider == "gemini" and settings.GEMINI_API_KEY:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
                 payload = {
